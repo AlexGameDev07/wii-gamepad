@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5cb6ff"/>
+      <stop offset="1" stop-color="#1f7fd6"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dfe3ea"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <g transform="rotate(-18 64 64)">
+    <rect x="45" y="14" width="38" height="100" rx="13" fill="#0b2a4a" opacity="0.25" transform="translate(3 4)"/>
+    <rect x="45" y="14" width="38" height="100" rx="13" fill="url(#body)"/>
+    <!-- botón de encendido -->
+    <circle cx="58" cy="23" r="3" fill="#c9ced8"/>
+    <circle cx="58" cy="23" r="1.6" fill="#e5484d"/>
+    <!-- cruceta -->
+    <rect x="59.5" y="31" width="9" height="25" rx="1.5" fill="#3a3d4a"/>
+    <rect x="51.5" y="39" width="25" height="9" rx="1.5" fill="#3a3d4a"/>
+    <!-- A -->
+    <circle cx="64" cy="66" r="6.5" fill="#c9ced8"/>
+    <circle cx="64" cy="66" r="5" fill="#f4f6f9"/>
+    <!-- − Home + -->
+    <circle cx="55" cy="81" r="2.6" fill="#c9ced8"/>
+    <circle cx="64" cy="81" r="2.6" fill="#3fa7ff"/>
+    <circle cx="73" cy="81" r="2.6" fill="#c9ced8"/>
+    <!-- 1 y 2 -->
+    <circle cx="64" cy="92" r="3.6" fill="#c9ced8"/>
+    <circle cx="64" cy="101" r="3.6" fill="#c9ced8"/>
+    <!-- luces -->
+    <rect x="54" y="108" width="3" height="2" rx="1" fill="#3fa7ff"/>
+    <rect x="59.5" y="108" width="3" height="2" rx="1" fill="#c9ced8"/>
+    <rect x="65" y="108" width="3" height="2" rx="1" fill="#c9ced8"/>
+    <rect x="70.5" y="108" width="3" height="2" rx="1" fill="#c9ced8"/>
+  </g>
+</svg>
