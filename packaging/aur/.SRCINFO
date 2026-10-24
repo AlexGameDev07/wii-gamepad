@@ -1,0 +1,23 @@
+pkgbase = wii-gamepad
+	pkgdesc = Wii Remote + Nunchuk as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)
+	pkgver = 1.0
+	pkgrel = 1
+	url = https://github.com/AlexGameDev07/wii-gamepad
+	install = wii-gamepad.install
+	arch = any
+	license = GPL-3.0-or-later
+	depends = python
+	depends = python-evdev
+	depends = tk
+	depends = bluez
+	depends = bluez-utils
+	depends = hicolor-icon-theme
+	optdepends = python-gobject: on-screen keyboard opens by itself in text fields
+	optdepends = at-spi2-core: on-screen keyboard opens by itself in text fields
+	optdepends = libxkbcommon: on-screen keyboard types with your keyboard layout
+	optdepends = pipewire: sounds (pw-play)
+	optdepends = libpulse: sounds (paplay)
+	source = wii-gamepad-1.0.tar.gz::https://github.com/AlexGameDev07/wii-gamepad/archive/refs/tags/v1.0.tar.gz
+	sha256sums = a2bd2f308a9f6170e2cfbeb62a8e540dde9f5a49ca7f9ed3364691e9037aba9f
+
+pkgname = wii-gamepad

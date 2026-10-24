@@ -1,0 +1,10 @@
+post_install() {
+    echo ':: Activa el Bluetooth si no lo está:  sudo systemctl enable --now bluetooth'
+    echo ':: Empareja el Wiimote (botón rojo SYNC) y enciéndelo con 1+2: el puente arranca solo.'
+    echo ':: Para cambiar botones y perfiles abre «Wii Gamepad» en el menú (wii-gamepad-config).'
+    echo ':: Si ya lo instalaste con ./install.sh, quita esa copia:  ./install.sh --uninstall'
+}
+
+post_upgrade() {
+    :
+}
