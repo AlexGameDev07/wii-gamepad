@@ -2,6 +2,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 ![Linux](https://img.shields.io/badge/platform-Linux-informational)
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
 Use a Wii Remote (with or without Nunchuk) as an Xbox 360 controller on Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) and any game with controller support.
@@ -150,6 +151,11 @@ python3 tests/test_bridge.py   # requires having run install.sh
 tests/install-matrix.sh        # requires podman or docker
 python3 docs/escena.py         # regenerates the GIF and screenshots in this README
 ```
+
+## Support the project
+
+Wii Gamepad is and will stay free. If it helps you and you want to buy me a coffee,
+you can do it on [Ko-fi](https://ko-fi.com/alexdev07). Thanks!
 
 ## License and credits
 

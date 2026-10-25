@@ -2,6 +2,7 @@
 
 [![Licencia: GPL v3](https://img.shields.io/badge/licencia-GPLv3-blue.svg)](LICENSE)
 ![Linux](https://img.shields.io/badge/plataforma-Linux-informational)
+[![Apóyame en Ko-fi](https://img.shields.io/badge/Ko--fi-ap%C3%B3yame-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
 Usa un Wiimote (con o sin Nunchuk) como mando de Xbox 360 en Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) y cualquier juego con soporte de mando.
@@ -223,6 +224,11 @@ python3 tests/test_bridge.py   # necesita haber ejecutado install.sh
 tests/install-matrix.sh        # necesita podman o docker
 python3 docs/escena.py         # regenera el GIF y las capturas de este README
 ```
+
+## Apoya el proyecto
+
+Wii Gamepad es y seguirá siendo gratis. Si te sirve y quieres invitarme un café,
+puedes hacerlo en [Ko-fi](https://ko-fi.com/alexdev07). ¡Gracias!
 
 ## Licencia y créditos
 
