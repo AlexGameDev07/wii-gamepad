@@ -1,6 +1,6 @@
 pkgbase = wii-gamepad
 	pkgdesc = Wii Remote + Nunchuk as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)
-	pkgver = 1.0
+	pkgver = 1.1
 	pkgrel = 1
 	url = https://github.com/AlexGameDev07/wii-gamepad
 	install = wii-gamepad.install
@@ -18,7 +18,7 @@ pkgbase = wii-gamepad
 	optdepends = libnotify: desktop notifications (notify-send)
 	optdepends = pipewire: sounds (pw-play)
 	optdepends = libpulse: sounds (paplay)
-	source = wii-gamepad-1.0.tar.gz::https://github.com/AlexGameDev07/wii-gamepad/archive/refs/tags/v1.0.tar.gz
-	sha256sums = a2bd2f308a9f6170e2cfbeb62a8e540dde9f5a49ca7f9ed3364691e9037aba9f
+	source = wii-gamepad-1.1.tar.gz::https://github.com/AlexGameDev07/wii-gamepad/archive/refs/tags/v1.1.tar.gz
+	sha256sums = bef425d9dc484a327f952df22053de962c9ff6f4c8d2fbf1656211a94b83f565
 
 pkgname = wii-gamepad
