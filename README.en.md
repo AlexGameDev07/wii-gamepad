@@ -128,15 +128,18 @@ Steam sees the virtual controller as a physical one, so its layout is applied *o
 profile here. Remap in only one place: either use the **Steam Input (1:1)** profile and remap in
 Steam, or keep Steam's default layout and use this app's profiles.
 
-## Gyro, rumble, sounds and battery
+## Gyro, rumble, alerts and battery
 
 - **Gyro (Motion Plus):** turning the Wiimote moves the camera. In "Aim" mode, pointing to a side
   keeps the camera turning; press **B + D-pad ↓** to recenter. It recalibrates by itself every
   time the Wiimote rests still for a second.
 - **Rumble:** games that rumble an Xbox controller rumble the Wiimote too (its motor is on/off
   only, so soft rumble feels choppy).
-- **Sounds:** a sound plays on the PC on connect, disconnect, recenter, Nunchuk and mouse mode.
-  Choose them in **Sonidos…** or add your own to `~/.config/wii-gamepad/sonidos/`.
+- **Alerts:** a sound plays on the PC on connect, disconnect, low battery, recenter, Nunchuk and
+  mouse mode. In **Avisos…** you choose each sound and whether it also shows a desktop
+  notification (by default: connect with the battery level, disconnect, and battery below 20 %
+  and 10 %). Add your own sounds to `~/.config/wii-gamepad/sonidos/`. The window shows the
+  Wiimote's battery next to its title.
 - **Battery:** after 10 idle minutes the Wiimote is turned off (`wii-gamepad --idle 20` changes
   it, `--idle 0` disables it). The accelerometer is only enabled by profiles that use tilt.
 

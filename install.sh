@@ -75,29 +75,29 @@ info "Distribución detectada: ${PRETTY_NAME:-desconocida}"
 # Cada gestor: comando de instalación, paquetes base, paquete evdev,
 # y paquetes para compilar evdev con pip si el paquete del sistema no existe.
 if command -v dnf >/dev/null; then
-    PM_INSTALL="dnf install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject gobject-introspection at-spi2-core"; EVDEV="python3-evdev"
+    PM_INSTALL="dnf install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject gobject-introspection at-spi2-core"; EVDEV="python3-evdev"; NOTIFY="libnotify"
     BUILD="gcc python3-devel kernel-headers"
 elif command -v apt-get >/dev/null; then
-    PM_INSTALL="apt-get install -y"; BASE="python3 python3-tk bluez"; KB="python3-gi gir1.2-atspi-2.0 libxkbcommon0"; EVDEV="python3-evdev"
+    PM_INSTALL="apt-get install -y"; BASE="python3 python3-tk bluez"; KB="python3-gi gir1.2-atspi-2.0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-bin"
     BUILD="gcc python3-dev python3-venv linux-libc-dev"
     $SUDO apt-get update
 elif command -v pacman >/dev/null; then
-    PM_INSTALL="pacman -Syu --needed --noconfirm"; BASE="python tk bluez bluez-utils"; KB="python-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"
+    PM_INSTALL="pacman -Syu --needed --noconfirm"; BASE="python tk bluez bluez-utils"; KB="python-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"
     BUILD="gcc linux-api-headers"
 elif command -v zypper >/dev/null; then
-    PM_INSTALL="zypper --non-interactive install"; BASE="python3 python3-tk bluez"; KB="python3-gobject typelib-1_0-Atspi-2_0 libxkbcommon0"; EVDEV="python3-evdev"
+    PM_INSTALL="zypper --non-interactive install"; BASE="python3 python3-tk bluez"; KB="python3-gobject typelib-1_0-Atspi-2_0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-tools"
     BUILD="gcc python3-devel linux-glibc-devel"
 elif command -v xbps-install >/dev/null; then
-    PM_INSTALL="xbps-install -Sy"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python3-evdev"
+    PM_INSTALL="xbps-install -Sy"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python3-evdev"; NOTIFY="libnotify"
     BUILD="gcc python3-devel kernel-libc-headers"
 elif command -v apk >/dev/null; then
-    PM_INSTALL="apk add"; BASE="python3 python3-tkinter bluez"; KB="py3-gobject3 at-spi2-core libxkbcommon"; EVDEV="py3-evdev"
+    PM_INSTALL="apk add"; BASE="python3 python3-tkinter bluez"; KB="py3-gobject3 at-spi2-core libxkbcommon"; EVDEV="py3-evdev"; NOTIFY="libnotify"
     BUILD="gcc musl-dev python3-dev linux-headers"
 elif command -v emerge >/dev/null; then
-    PM_INSTALL="emerge --noreplace"; BASE="dev-lang/python net-wireless/bluez"; KB="dev-python/pygobject app-accessibility/at-spi2-core x11-libs/libxkbcommon"; EVDEV="dev-python/evdev"
+    PM_INSTALL="emerge --noreplace"; BASE="dev-lang/python net-wireless/bluez"; KB="dev-python/pygobject app-accessibility/at-spi2-core x11-libs/libxkbcommon"; EVDEV="dev-python/evdev"; NOTIFY="x11-libs/libnotify"
     BUILD="sys-kernel/linux-headers"
 elif command -v eopkg >/dev/null; then
-    PM_INSTALL="eopkg install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"
+    PM_INSTALL="eopkg install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"
     BUILD="gcc python3-devel linux-headers"
 else
     PM_INSTALL=""
@@ -114,6 +114,9 @@ if [ -n "$PM_INSTALL" ]; then
     info "Instalando paquetes del teclado en pantalla: $KB"
     # shellcheck disable=SC2086
     pm $KB || warn "Sin estos paquetes el teclado en pantalla no se abre solo en los campos de texto"
+    info "Instalando notify-send para las notificaciones: $NOTIFY"
+    # shellcheck disable=SC2086
+    pm $NOTIFY || warn "Sin notify-send no habrá notificaciones de escritorio (los sonidos sí funcionan)"
 fi
 
 command -v python3 >/dev/null || die "python3 no está disponible."

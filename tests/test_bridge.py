@@ -202,6 +202,7 @@ def test_bridge(tmp):
     cfg_path = tmp / "config.json"
     cfg = wg.default_config()
     cfg["sounds"] = {k: "" for k in cfg["sounds"]}  # en silencio
+    cfg["notifications"] = {k: False for k in cfg["notifications"]}
     cfg["mouse"]["auto_keyboard"] = False  # que no aparezca el teclado en el escritorio
     cfg["idle_timeout_min"] = 0
     cfg_path.write_text(json.dumps(cfg))

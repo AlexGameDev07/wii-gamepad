@@ -19,6 +19,7 @@ import os
 import select
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -161,8 +162,9 @@ DEFAULT_PROFILES = {
 }
 PROFILE_OPTIONS = {"deadzone": 0.10, "tilt_sensitivity": 1.0, "invert_tilt_y": False,
                    "gyro_sensitivity": 1.0, "invert_gyro_y": False, "gyro_mode": "speed"}
-# Sonidos de aviso en la PC: evento -> etiqueta.
+# Avisos en la PC (sonido y notificación de escritorio): evento -> etiqueta.
 SOUND_EVENTS = {"connect": "Wiimote conectado", "disconnect": "Wiimote apagado o desconectado",
+                "battery": "Batería baja del Wiimote",
                 "recenter": "Giroscopio recentrado", "nunchuk": "Nunchuk conectado / desconectado",
                 "mouse": "Modo mouse activado / desactivado"}
 SOUND_DIRS = [CONFIG.parent / "sonidos", Path(__file__).resolve().parent / "sonidos"]  # los del usuario primero
@@ -171,11 +173,15 @@ GLOBAL_OPTIONS = {"idle_timeout_min": 10, "recenter_combo": "B+Down", "rumble": 
                   "mouse_combo": "+-", "mouse": MOUSE_DEFAULTS,
                   "sounds": {"connect": "maximize_006.ogg", "disconnect": "minimize_006.ogg",
                              "recenter": "confirmation_001.ogg", "nunchuk": "toggle_001.ogg",
-                             "mouse": "switch_003.ogg"}}
+                             "mouse": "switch_003.ogg", "battery": "bong_001.ogg"},
+                  "notifications": {"connect": True, "disconnect": True, "battery": True,
+                                    "recenter": False, "nunchuk": False, "mouse": False}}
 IDLE_TIMEOUT_MIN = GLOBAL_OPTIONS["idle_timeout_min"]  # minutos sin uso antes de apagar (0 = nunca)
 MOTION_THRESHOLD = 25  # cambio del acelerómetro (~0.25 g) que cuenta como "en uso"
 ACTIVITY = 0.15  # un stick analógico cuenta como "en uso" (para el apagado) pasado este valor
 ONCE_WAIT = 15  # con --once, segundos que espera al Wiimote antes de rendirse
+BATTERY_LOW = (20, 10)  # avisa al bajar de cada nivel (%), una vez por conexión
+BATTERY_CHECK = 120  # segundos entre lecturas de la batería (cada una le pide su estado al Wiimote)
 
 
 def new_profile():
@@ -207,6 +213,8 @@ def load_config(path=CONFIG):
         # Si el archivo ya no existe (p. ej. un sonido de versiones anteriores), vuelve el de por defecto.
         if cfg["sounds"].setdefault(k, v) and not sound_path(cfg["sounds"][k]):
             cfg["sounds"][k] = v
+    for k, v in GLOBAL_OPTIONS["notifications"].items():
+        cfg["notifications"].setdefault(k, v)
     for k, v in MOUSE_DEFAULTS.items():
         cfg["mouse"].setdefault(k, copy.deepcopy(v))
     for k, v in MOUSE_DEFAULTS["buttons"].items():
@@ -627,6 +635,39 @@ def play_on_pc(name, wait=False):
         pass
 
 
+def notify_desktop(summary, body="", urgency="normal", transient=True, wait=False):
+    """Notificación de escritorio con notify-send (libnotify); sin él no hace nada."""
+    sender = shutil.which("notify-send")
+    if not sender:
+        return
+    cmd = [sender, "-a", "Wii Gamepad", "-i", "wii-gamepad", "-u", urgency]
+    if transient:  # los avisos de rutina no se quedan en el historial
+        cmd += ["-h", "boolean:transient:true"]
+    try:
+        proc = subprocess.Popen([*cmd, summary, body], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if wait:
+            proc.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def battery_path(dev_path=None):
+    """Archivo de sysfs con la carga del Wiimote de ese dispositivo (o del primero que haya), o None."""
+    base = (Path("/sys/class/input") / Path(dev_path).name / "device" / "device" / "power_supply"
+            if dev_path else Path("/sys/class/power_supply"))
+    return next(base.glob("wiimote_battery_*/capacity"), None)
+
+
+def battery_level(path):
+    """Carga en %, o None. El driver da byte * 100 / 255, pero con pilas nuevas el Wiimote
+    no pasa de 0xC8 (~78 %): se reescala para que unas pilas nuevas marquen 100 %."""
+    try:
+        raw = int(Path(path).read_text())
+    except (OSError, TypeError, ValueError):
+        return None
+    return min(100, round(raw * 255 / 0xC8))
+
+
 def power_off(dev):
     """Corta el Bluetooth del Wiimote, que al perder la conexión se apaga."""
     uevent = sysfs(dev.path, "device/uevent") or ""  # dispositivo HID padre
@@ -671,6 +712,7 @@ class Bridge:
             self.kb.stop_watch()
         self.rumble_on = cfg["rumble"]
         self.sounds = cfg["sounds"]
+        self.notifications = cfg["notifications"]
         self.profile = cfg["profiles"][cfg["active"]]
         self.buttons = {SOURCES[s][0]: (s, t) for s, t in self.profile["buttons"].items() if s in SOURCES}
         self.make_axes()
@@ -737,7 +779,7 @@ class Bridge:
             self.kb.stop_watch()
         if self.rumble and self.rumble_on:
             self.rumble.pulse(0.15)
-        self.notify("mouse")
+        self.notify("mouse", "Modo mouse" if self.mouse_mode else "Modo mando de juego")
         print("Modo mouse" if self.mouse_mode else "Modo mando de juego")
 
     def show_keyboard(self, auto=False):
@@ -801,8 +843,10 @@ class Bridge:
         self.notify("recenter")
         print("Giroscopio recentrado")
 
-    def notify(self, event, wait=False):
-        """Sonido de aviso en la PC."""
+    def notify(self, event, summary=None, body="", urgency="normal", wait=False):
+        """Aviso en la PC: notificación de escritorio (si está activada para ese evento) y sonido."""
+        if self.notifications.get(event):
+            notify_desktop(summary or SOUND_EVENTS[event], body, urgency, event != "battery", wait)
         play_on_pc(self.sounds.get(event), wait)
 
     def handle_stick(self, mode, axis_id, value):
@@ -848,7 +892,7 @@ class Bridge:
                         self.make_axes()
                         print("Nunchuk conectado")
                         if not first_attach:  # al encender ya suena el aviso del Wiimote
-                            self.notify("nunchuk")
+                            self.notify("nunchuk", "Nunchuk conectado")
 
         def detach(name, gone):
             nonlocal attach_after
@@ -862,7 +906,7 @@ class Bridge:
                 attach_after = time.monotonic() + 2
                 if name == NUNCHUK:
                     print("Nunchuk desconectado")
-                    self.notify("nunchuk")
+                    self.notify("nunchuk", "Nunchuk desconectado")
 
         def detach_extras():
             present = set(evdev.list_devices())
@@ -886,8 +930,13 @@ class Bridge:
         print(f"Wiimote conectado -> mando virtual '{self.pad.name}'")
         if self.rumble and self.rumble_on:
             self.rumble.pulse(0.3)
-        self.notify("connect")
-        last_scan = last_input = time.monotonic()
+        battery = battery_path(wiimote.path)
+        level = battery_level(battery)
+        self.notify("connect", body=f"Batería: {level} %" if level is not None else "")
+        battery_warned = set()  # niveles de BATTERY_LOW ya avisados
+        battery_reads = [level]  # la lectura se hace en otro hilo: puede tardar y frenaría los botones
+        idle_off = False
+        last_scan = last_input = last_battery = time.monotonic()
         motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
         timeout = 1.0
         try:
@@ -965,9 +1014,23 @@ class Bridge:
                           "(presiona 1+2 para volver a conectarlo)")
                     self.pad.reset()
                     self.mouse.reset()
-                    if not power_off(wiimote):
+                    if power_off(wiimote):
+                        idle_off = True
+                    else:
                         print("No se pudo desconectar el Wiimote (¿falta bluetoothctl?)")
                     last_input = now
+                if battery and now - last_battery > BATTERY_CHECK:
+                    last_battery = now
+                    threading.Thread(target=lambda: battery_reads.append(battery_level(battery)),
+                                     daemon=True).start()
+                while battery_reads:
+                    level = battery_reads.pop(0)
+                    low = [t for t in BATTERY_LOW if level is not None and level <= t and t not in battery_warned]
+                    if low:
+                        battery_warned.update(low)
+                        print(f"Batería baja del Wiimote: {level} %")
+                        self.notify("battery", body=f"Queda {level} %. Cambia las pilas pronto.",
+                                    urgency="critical" if min(low) == min(BATTERY_LOW) else "normal")
                 if now - last_scan > 1 or self.rescan:
                     last_scan, self.rescan = now, False
                     if self.config_changed():
@@ -980,7 +1043,8 @@ class Bridge:
             self.mouse.reset()
             self.kb.hide()
             self.kb.stop_watch()
-            self.notify("disconnect", wait=True)
+            idle = f"Se apagó tras {self.idle_timeout // 60} min sin uso. " if idle_off else ""
+            self.notify("disconnect", body=idle + "Presiona 1+2 para volver a conectarlo.", wait=True)
             return True
         finally:
             self.rumble = None

@@ -188,14 +188,19 @@ Los juegos que hacen vibrar el mando de Xbox también hacen vibrar el Wiimote. S
 solo enciende o apaga, así que las vibraciones suaves se notan entrecortadas. Se
 desactiva con «Vibrar cuando el juego lo pida», y «Probar vibración» la comprueba.
 
-## Sonidos
+## Avisos y batería
 
-![Ventana de sonidos](docs/sonidos.png)
+![Ventana de avisos](docs/sonidos.png)
 
-Suena un aviso al conectar el Wiimote, al apagarse, al recentrar el giroscopio y al
-conectar o quitar el Nunchuk. Se oye en la PC; al conectar, además, el Wiimote vibra.
-En **Sonidos…** eliges cada sonido (o «Ninguno»). Para añadir los tuyos, cópialos a
-`~/.config/wii-gamepad/sonidos/`.
+Suena un aviso al conectar el Wiimote, al apagarse, con la batería baja, al recentrar el
+giroscopio, al conectar o quitar el Nunchuk y al cambiar al modo mouse. Se oye en la PC; al
+conectar, además, el Wiimote vibra. En **Avisos…** eliges cada sonido (o «Ninguno») y si
+quieres también una notificación de escritorio. Por defecto la hay al conectar (con el nivel
+de batería), al desconectar y cuando la batería baja del 20 % y del 10 %. Para añadir tus
+sonidos, cópialos a `~/.config/wii-gamepad/sonidos/`.
+
+La ventana muestra la batería del Wiimote junto al título. Las notificaciones usan
+`notify-send` (paquete `libnotify`), que instala `install.sh`.
 
 ## Ahorro de batería
 

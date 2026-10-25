@@ -10,6 +10,7 @@ depends=('python' 'python-evdev' 'tk' 'bluez' 'bluez-utils' 'hicolor-icon-theme'
 optdepends=('python-gobject: on-screen keyboard opens by itself in text fields'
             'at-spi2-core: on-screen keyboard opens by itself in text fields'
             'libxkbcommon: on-screen keyboard types with your keyboard layout'
+            'libnotify: desktop notifications (notify-send)'
             'pipewire: sounds (pw-play)'
             'libpulse: sounds (paplay)')
 install=wii-gamepad.install

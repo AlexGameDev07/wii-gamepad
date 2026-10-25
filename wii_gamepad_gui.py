@@ -8,6 +8,7 @@ import os
 import select
 import subprocess
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
@@ -181,6 +182,11 @@ class App(tk.Tk):
         top = ttk.Frame(self, padding=(14, 12, 14, 6))
         top.pack(fill="x")
         ttk.Label(top, text="Wii Gamepad", style="Head.TLabel").pack(side="left")
+        self.battery_icon = tk.Canvas(top, width=30, height=14, bg=BG, highlightthickness=0)
+        self.battery_icon.pack(side="left", padx=(16, 6))
+        self.battery_label = ttk.Label(top, text="", style="Status.TLabel")
+        self.battery_label.pack(side="left")
+        self.battery_file, self.battery_read = None, 0.0
         ttk.Button(top, text="Borrar", command=self.delete_profile).pack(side="right", padx=2)
         ttk.Button(top, text="Renombrar", command=self.rename_profile).pack(side="right", padx=2)
         ttk.Button(top, text="Duplicar", command=self.duplicate_profile).pack(side="right", padx=2)
@@ -266,7 +272,7 @@ class App(tk.Tk):
         self.bridge_btn = ttk.Button(bottom, text="Iniciar puente", command=self.toggle_bridge)
         self.bridge_btn.pack(side="right", padx=2)
         ttk.Button(bottom, text="Restaurar perfil", command=self.reset_profile).pack(side="right", padx=2)
-        ttk.Button(bottom, text="Sonidos…", command=self.open_sounds).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Avisos…", command=self.open_sounds).pack(side="right", padx=2)
         ttk.Button(bottom, text="Modo mouse…", command=self.open_mouse).pack(side="right", padx=2)
 
     # --- perfiles ---------------------------------------------------------------
@@ -332,13 +338,15 @@ class App(tk.Tk):
             self.sounds_win.lift()
             return
         win = self.sounds_win = tk.Toplevel(self)
-        win.title("Sonidos")
+        win.title("Avisos")
         win.configure(bg=BG)
-        f = self.panel(win, "Sonidos de aviso")
+        f = self.panel(win, "Avisos")
         f.pack(fill="both", expand=True, padx=12, pady=12)
         none = "— Ninguno —"
         files = wg.sound_files()
-        sounds = self.cfg["sounds"]
+        sounds, notes = self.cfg["sounds"], self.cfg["notifications"]
+        ttk.Label(f, text="Sonido", style="Muted.TLabel").grid(row=1, column=1, sticky="w")
+        ttk.Label(f, text="Notificación", style="Muted.TLabel").grid(row=1, column=3, padx=(12, 0))
 
         def row(r, event, label):
             ttk.Label(f, text=label, style="Panel.TLabel").grid(row=r, column=0, sticky="w", padx=(0, 10), pady=3)
@@ -354,13 +362,26 @@ class App(tk.Tk):
             cb.bind("<<ComboboxSelected>>", changed)
             ttk.Button(f, text="▶", width=3, command=lambda: wg.play_on_pc(sounds.get(event))).grid(
                 row=r, column=2, padx=(6, 0))
+            note = tk.BooleanVar(value=notes.get(event, False))
 
-        for r, (event, label) in enumerate(wg.SOUND_EVENTS.items(), start=1):
+            def note_changed():
+                notes[event] = note.get()
+                self.save()
+                if note.get():  # muestra cómo se verá
+                    wg.notify_desktop(label, "Así se verá este aviso.")
+
+            ttk.Checkbutton(f, variable=note, style="Panel.TCheckbutton", command=note_changed).grid(
+                row=r, column=3, padx=(12, 0))
+
+        for r, (event, label) in enumerate(wg.SOUND_EVENTS.items(), start=2):
             row(r, event, label)
-        r = len(wg.SOUND_EVENTS) + 1
+        r = len(wg.SOUND_EVENTS) + 2
         user_dir = wg.SOUND_DIRS[0]
-        ttk.Label(f, text=f"Para añadir tus sonidos, cópialos a {user_dir}", style="Muted.TLabel",
-                  wraplength=460).grid(row=r, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        hint = f"Para añadir tus sonidos, cópialos a {user_dir}"
+        if not wg.shutil.which("notify-send"):
+            hint += ". Para las notificaciones falta notify-send (paquete libnotify)."
+        ttk.Label(f, text=hint, style="Muted.TLabel",
+                  wraplength=460).grid(row=r, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
         def open_dir():
             user_dir.mkdir(parents=True, exist_ok=True)
@@ -538,7 +559,26 @@ class App(tk.Tk):
 
     def refresh_bridge(self):
         self.update_bridge()
+        self.refresh_battery()
         self.after(1500, self.refresh_bridge)
+
+    def refresh_battery(self):
+        path = wg.battery_path()  # buscarla es barato; leerla le pide su estado al Wiimote
+        now = time.monotonic()
+        if path == self.battery_file and now - self.battery_read < 30:
+            return
+        self.battery_file, self.battery_read = path, now
+        level = wg.battery_level(path) if path else None
+        c = self.battery_icon
+        c.delete("all")
+        color = MUTED if level is None else XBOX_COLORS["A"] if level > 50 else \
+            XBOX_COLORS["Y"] if level > 20 else XBOX_COLORS["B"]
+        c.create_rectangle(1, 1, 26, 13, outline=color, width=2)
+        c.create_rectangle(26, 4, 29, 10, fill=color, outline="")
+        if level:
+            c.create_rectangle(4, 4, 4 + 19 * level / 100, 10, fill=color, outline="")
+        self.battery_label.configure(text="Wiimote sin conectar" if level is None else f"{level} %",
+                                     foreground=MUTED if level is None or level > 20 else color)
 
     def update_bridge(self):
         running = self.bridge_running()
