@@ -185,6 +185,8 @@ GLOBAL_OPTIONS = {"idle_timeout_min": 10, "recenter_combo": "B+Down", "rumble": 
                   # Por Wiimote (su MAC): {"name": ..., "profile": ...}; sin perfil usa "active".
                   "devices": {},
                   "ui": {"animations": True, "theme": "system"}}
+IDLE_OPTIONS = {0: "Nunca", 5: "Tras 5 min", 10: "Tras 10 min", 15: "Tras 15 min", 20: "Tras 20 min",
+                30: "Tras 30 min"}
 IDLE_TIMEOUT_MIN = GLOBAL_OPTIONS["idle_timeout_min"]  # minutos sin uso antes de apagar (0 = nunca)
 MOTION_THRESHOLD = 25  # cambio del acelerómetro (~0.25 g) que cuenta como "en uso"
 ACTIVITY = 0.15  # un stick analógico cuenta como "en uso" (para el apagado) pasado este valor
@@ -257,6 +259,35 @@ def save_config(cfg, path=CONFIG):
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     tmp.replace(path)
+
+
+def rename_profile(cfg, old, new):
+    cfg["profiles"] = {(new if k == old else k): v for k, v in cfg["profiles"].items()}
+    if cfg["active"] == old:
+        cfg["active"] = new
+    for d in cfg["devices"].values():
+        if d.get("profile") == old:
+            d["profile"] = new
+
+
+def delete_profile(cfg, name):
+    """Borra el perfil; los Wiimotes que lo usaban pasan al perfil por defecto."""
+    del cfg["profiles"][name]
+    if cfg["active"] == name:
+        cfg["active"] = next(iter(cfg["profiles"]))
+    for d in cfg["devices"].values():
+        if d.get("profile") == name:
+            del d["profile"]
+
+
+def read_state():
+    """Lo que publica el puente en marcha (sus jugadores), o None si no está en marcha."""
+    try:
+        state = json.loads(STATE.read_text())
+        os.kill(state["pid"], 0)
+        return state
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 class Axis:
@@ -728,8 +759,11 @@ def battery_level(path):
 
 def power_off(dev):
     """Corta el Bluetooth del Wiimote, que al perder la conexión se apaga."""
-    mac = device_id(dev.path)
-    if ":" not in mac:
+    return disconnect(device_id(dev.path))
+
+
+def disconnect(mac):
+    if ":" not in mac:  # un Wiimote falso de las pruebas
         return False
     try:
         return subprocess.run(["bluetoothctl", "disconnect", mac], capture_output=True, timeout=10).returncode == 0

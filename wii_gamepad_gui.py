@@ -22,8 +22,7 @@ import wii_gamepad as wg  # noqa: E402
 BG, PANEL, FG, MUTED, ACCENT, OFF = "#1e1f26", "#2a2c36", "#e8e8ee", "#9a9cab", "#3fa7ff", "#3a3d4a"
 XBOX_COLORS = {"A": "#4caf50", "B": "#f44336", "X": "#2196f3", "Y": "#ffc107"}
 SERVICE = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user" / "wii-gamepad.service"
-IDLE_OPTIONS = {0: "Nunca", 5: "Tras 5 min", 10: "Tras 10 min", 15: "Tras 15 min", 20: "Tras 20 min",
-                30: "Tras 30 min"}
+IDLE_OPTIONS = wg.IDLE_OPTIONS
 
 
 class LiveView(tk.Canvas):
@@ -531,7 +530,7 @@ class App(tk.Tk):
         old = self.cfg["active"]
         name = self.ask_name("Renombrar perfil", old)
         if name:
-            self.cfg["profiles"] = {(name if k == old else k): v for k, v in self.cfg["profiles"].items()}
+            wg.rename_profile(self.cfg, old, name)
             self.cfg["active"] = name
             self.load_profile()
             self.save()
@@ -542,8 +541,7 @@ class App(tk.Tk):
             return
         name = self.cfg["active"]
         if messagebox.askyesno("Borrar perfil", f"¿Borrar el perfil «{name}»?", parent=self):
-            del self.cfg["profiles"][name]
-            self.cfg["active"] = next(iter(self.cfg["profiles"]))
+            wg.delete_profile(self.cfg, name)
             self.load_profile()
             self.save()
 
