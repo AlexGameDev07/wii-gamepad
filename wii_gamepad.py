@@ -180,6 +180,7 @@ IDLE_TIMEOUT_MIN = GLOBAL_OPTIONS["idle_timeout_min"]  # minutos sin uso antes d
 MOTION_THRESHOLD = 25  # cambio del acelerómetro (~0.25 g) que cuenta como "en uso"
 ACTIVITY = 0.15  # un stick analógico cuenta como "en uso" (para el apagado) pasado este valor
 ONCE_WAIT = 15  # con --once, segundos que espera al Wiimote antes de rendirse
+UNPLUG_GRACE = 1.5  # al apagarse el Wiimote se va también el Nunchuk: su aviso espera por si es eso
 BATTERY_LOW = (20, 10)  # avisa al bajar de cada nivel (%), una vez por conexión
 BATTERY_CHECK = 120  # segundos entre lecturas de la batería (cada una le pide su estado al Wiimote)
 
@@ -874,6 +875,7 @@ class Bridge:
             return {NUNCHUK} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
 
         attach_after = 0.0  # tras quitar un accesorio, esperar a que su nodo desaparezca
+        nunchuk_gone = None  # cuándo se quitó el Nunchuk, si su aviso está pendiente
 
         def attach_extras():
             if time.monotonic() < attach_after:
@@ -895,7 +897,7 @@ class Bridge:
                             self.notify("nunchuk", "Nunchuk conectado")
 
         def detach(name, gone):
-            nonlocal attach_after
+            nonlocal attach_after, nunchuk_gone
             d = extras.pop(name)
             devices.pop(d.fd, None)
             d.close()
@@ -905,8 +907,7 @@ class Bridge:
             if gone:
                 attach_after = time.monotonic() + 2
                 if name == NUNCHUK:
-                    print("Nunchuk desconectado")
-                    self.notify("nunchuk", "Nunchuk desconectado")
+                    nunchuk_gone = time.monotonic()
 
         def detach_extras():
             present = set(evdev.list_devices())
@@ -998,6 +999,13 @@ class Bridge:
                             self.pad.syn()
                 now = time.monotonic()
                 timeout = 1.0
+                if nunchuk_gone is not None:
+                    if now - nunchuk_gone >= UNPLUG_GRACE:
+                        nunchuk_gone = None
+                        print("Nunchuk desconectado")
+                        self.notify("nunchuk", "Nunchuk desconectado")
+                    else:
+                        timeout = min(timeout, nunchuk_gone + UNPLUG_GRACE - now)
                 if self.rumble:
                     level, ends = self.pad.rumble_level(now)
                     timeout = min(timeout, ends, self.rumble.update(level if self.rumble_on else 0.0, now))

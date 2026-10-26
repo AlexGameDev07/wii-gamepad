@@ -44,15 +44,19 @@ class FakeWiimote:
     def __init__(self):
         keys = [code for code, _ in wg.SOURCES.values() if code not in (e.BTN_C, e.BTN_Z)]
         self.wiimote = UInput({e.EV_KEY: keys, e.EV_FF: [e.FF_RUMBLE]}, name=wg.WIIMOTE, max_effects=4)
-        self.nunchuk = UInput({e.EV_KEY: [e.BTN_C, e.BTN_Z],
-                               e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(0, -120, 120, 2, 4, 0)),
-                                          (e.ABS_HAT0Y, AbsInfo(0, -120, 120, 2, 4, 0))]}, name=wg.NUNCHUK)
+        self.nunchuk = self.make_nunchuk()
         gyro = AbsInfo(0, -16000, 16000, 4, 8, 0)
         self.motionplus = UInput({e.EV_ABS: [(e.ABS_RX, gyro), (e.ABS_RY, gyro), (e.ABS_RZ, gyro)]},
                                  name=wg.MOTIONPLUS)
         self.rumble = []  # valores EV_FF que llegan al Wiimote (1 = vibrar, 0 = parar)
         self.running = True
         threading.Thread(target=self._serve_ff, daemon=True).start()
+
+    @staticmethod
+    def make_nunchuk():
+        return UInput({e.EV_KEY: [e.BTN_C, e.BTN_Z],
+                       e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(0, -120, 120, 2, 4, 0)),
+                                  (e.ABS_HAT0Y, AbsInfo(0, -120, 120, 2, 4, 0))]}, name=wg.NUNCHUK)
 
     def _serve_ff(self):
         ui = self.wiimote
@@ -314,9 +318,14 @@ def test_bridge(tmp):
         print("Desconexiones")
 
         fake.nunchuk.close()
-        time.sleep(1.5)
+        time.sleep(1 + wg.UNPLUG_GRACE + 0.5)
         check("quitar el Nunchuk no desconecta el Wiimote",
               any("Nunchuk desconectado" in l for l in out) and bridge.poll() is None)
+        fake.nunchuk = fake.make_nunchuk()
+        time.sleep(3.5)  # el puente espera 2 s tras quitar un accesorio antes de buscarlo otra vez
+        reattached = sum("Nunchuk conectado" in l for l in out) == 2
+        # Apagar el Wiimote con el Nunchuk puesto: se van los dos, pero solo avisa el Wiimote.
+        fake.nunchuk.close()
         fake.motionplus.close()
         fake.wiimote.close()
         try:
@@ -325,6 +334,8 @@ def test_bridge(tmp):
             pass
         check("apagar el Wiimote -> el puente lo detecta y sale (--once)",
               bridge.returncode == 0 and any("Wiimote desconectado" in l for l in out), "".join(out[-5:]))
+        check("al apagarlo con el Nunchuk puesto no avisa también del Nunchuk",
+              reattached and sum("Nunchuk desconectado" in l for l in out) == 1, "".join(out[-5:]))
     finally:
         fake.close()
         for d in (pad, mouse):
