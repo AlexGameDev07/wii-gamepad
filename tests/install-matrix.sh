@@ -40,7 +40,9 @@ py="$(sed -n "s/^exec \"\([^\"]*\)\".*/\1/p" "$HOME/.local/bin/wii-gamepad")"
 "$py" -c "import tkinter" && echo "  ok  tkinter (ventana de configuración)"
 "$py" -c "import gi; gi.require_version(\"Atspi\", \"2.0\"); from gi.repository import Atspi" \
     && echo "  ok  AT-SPI (teclado en pantalla)" || echo "  --  sin AT-SPI (el teclado solo se abre con el botón 2)"
-test -f "$HOME/.local/share/applications/wii-gamepad.desktop" && echo "  ok  acceso en el menú"
+"$py" -c "import sys; sys.path.insert(0, \"$HOME/.local/share/wii-gamepad\"); import wii_gamepad_config as c; sys.exit(not c.adwaita_ok())" \
+    && echo "  ok  GTK4 + libadwaita (ventana nueva)" || echo "  --  sin libadwaita 1.5: se abre la ventana clásica"
+test -f "$HOME/.local/share/applications/io.github.alexgamedev07.WiiGamepad.desktop" && echo "  ok  acceso en el menú"
 ls "$HOME/.local/share/wii-gamepad/sonidos/"*.ogg >/dev/null && echo "  ok  sonidos"
 grep -q uinput /etc/udev/rules.d/65-wii-gamepad.rules && echo "  ok  regla udev"
 if command -v rc-update >/dev/null; then

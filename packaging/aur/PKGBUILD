@@ -6,9 +6,9 @@ pkgdesc="Wii Remote + Nunchuk as an Xbox 360 controller (rumble, gyro, per-game 
 arch=('any')
 url="https://github.com/AlexGameDev07/wii-gamepad"
 license=('GPL-3.0-or-later')
-depends=('python' 'python-evdev' 'tk' 'bluez' 'bluez-utils' 'hicolor-icon-theme')
-optdepends=('python-gobject: on-screen keyboard opens by itself in text fields'
-            'at-spi2-core: on-screen keyboard opens by itself in text fields'
+depends=('python' 'python-evdev' 'python-gobject' 'gtk4' 'libadwaita' 'tk' 'bluez' 'bluez-utils'
+         'hicolor-icon-theme')
+optdepends=('at-spi2-core: on-screen keyboard opens by itself in text fields'
             'libxkbcommon: on-screen keyboard types with your keyboard layout'
             'libnotify: desktop notifications (notify-send)'
             'pipewire: sounds (pw-play)'
@@ -21,7 +21,8 @@ package() {
     cd "$pkgname-$pkgver"
     local data=/usr/share/$pkgname
 
-    install -Dm644 -t "$pkgdir$data" wii_gamepad.py wii_gamepad_gui.py wii_keyboard.py wii-gamepad.svg
+    install -Dm644 -t "$pkgdir$data" wii_gamepad.py wii_gamepad_config.py wii_gamepad_adw.py wii_gamepad_gui.py \
+        wii_keyboard.py wii-gamepad.svg
     install -Dm644 -t "$pkgdir$data/sonidos" sonidos/*
     install -Dm644 wii-gamepad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/wii-gamepad.svg"
     install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE sonidos/LICENSE-Kenney.txt
@@ -29,7 +30,7 @@ package() {
 
     install -d "$pkgdir/usr/bin"
     printf '#!/bin/sh\nexec /usr/bin/python3 %s/wii_gamepad.py "$@"\n' "$data" > "$pkgdir/usr/bin/wii-gamepad"
-    printf '#!/bin/sh\nexec /usr/bin/python3 %s/wii_gamepad_gui.py "$@"\n' "$data" > "$pkgdir/usr/bin/wii-gamepad-config"
+    printf '#!/bin/sh\nexec /usr/bin/python3 %s/wii_gamepad_config.py "$@"\n' "$data" > "$pkgdir/usr/bin/wii-gamepad-config"
     chmod 755 "$pkgdir/usr/bin/wii-gamepad" "$pkgdir/usr/bin/wii-gamepad-config"
 
     # Lo mismo que hace ./install.sh --service, pero para todo el sistema
@@ -37,6 +38,8 @@ package() {
 # wii-gamepad: acceso del usuario al Wiimote y a /dev/uinput
 KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0660", GROUP="input", TAG+="uaccess"
+# El LED del Wiimote muestra el número de jugador
+SUBSYSTEM=="leds", KERNEL=="*:blue:p[0-3]", DRIVERS=="wiimote", RUN+="/bin/chmod 0666 /sys%p/brightness"
 # Arranca el puente (servicio de usuario) cuando se conecta el Wiimote
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="wii-gamepad.service"
 EOF
@@ -53,7 +56,7 @@ Restart=on-failure
 RestartSec=3
 EOF
 
-    install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/wii-gamepad.desktop" <<'EOF'
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/io.github.alexgamedev07.WiiGamepad.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Wii Gamepad

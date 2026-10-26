@@ -536,9 +536,9 @@ class PlayerPage(Adw.NavigationPage):
         # Ajustes del Wiimote
         name_row = Adw.EntryRow(title="Nombre", text=dev.get("name", ""), show_apply_button=True)
         name_row.connect("apply", self.set_name)
-        profiles = {"": f"Por defecto ({cfg['active']})"} | {n: n for n in cfg["profiles"]}
+        profiles = {"": "Por defecto"} | {n: n for n in cfg["profiles"]}
         profile_row = combo_row("Perfil", profiles, dev.get("profile", ""), self.set_profile,
-                                "Se aplica al instante, aunque estés jugando")
+                                f"Por defecto: {cfg['active']}")
         edit_row = Adw.ActionRow(title="Editar el perfil", activatable=True)
         edit_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         edit_row.connect("activated", lambda _r: win.select(("profile", self.profile_name())))
@@ -587,8 +587,9 @@ class PlayerPage(Adw.NavigationPage):
         self.badge.set_label(str(p["number"]) if online else "–")
         (self.badge.remove_css_class if online else self.badge.add_css_class)("offline")
         mac = self.id if ":" in self.id else ""
-        self.subtitle.set_label(" · ".join(x for x in (f"Jugador {p['number']}" if online else "Desconectado",
-                                                       mac) if x))
+        player = f"Jugador {p['number']}" if online else "Desconectado"
+        parts = [x for x in (player if player != name else "", mac) if x]
+        self.subtitle.set_label(" · ".join(parts) or f"Mando Xbox virtual {p['number']}")
         level = p.get("battery") if online else None
         self.battery.get_parent().set_visible(level is not None)
         self.battery_icon.set_from_icon_name(battery_icon(level))

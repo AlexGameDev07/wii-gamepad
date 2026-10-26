@@ -27,6 +27,7 @@ Hay otras formas de usar un Wiimote en Linux, pero ninguna junta todo esto:
 | Giroscopio (Motion Plus) como stick, modo «apuntar» estilo Wii | ✅ | ❌ | — | ✅ | ⚠️ sin modo apuntar |
 | Modo mouse y teclado en pantalla manejados con el Wiimote | ✅ | ⚠️ solo mouse | ❌ | ❌ | ❌ |
 | Arranca y se apaga solo con el Wiimote; ahorra batería | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Hasta 4 Wiimotes a la vez, cada uno con su perfil | ✅ | ⚠️ un proceso por Wiimote | — | ✅ | — |
 | Mantenido | ✅ | ❌ abandonado | ⚠️ poco | ✅ | ✅ |
 
 Usa el driver oficial del kernel (`hid-wiimote`), así que no reimplementa el protocolo
@@ -63,7 +64,9 @@ en un entorno aislado.
 | SteamOS, NixOS | No soportadas por el instalador (instalación manual) |
 
 Requisitos: kernel con `hid-wiimote` y `uinput` (todos los habituales), BlueZ, Python 3.9+
-y `sudo` o `doas`. Funciona en X11 y Wayland.
+y `sudo` o `doas`. La ventana usa GTK4 y libadwaita 1.5 o más reciente (las instala
+`install.sh`); en distros más antiguas, como Debian 12, se abre la ventana clásica.
+Funciona en X11 y Wayland.
 
 ## Vincular el Wiimote (solo la primera vez)
 
@@ -83,22 +86,46 @@ y `sudo` o `doas`. Funciona en X11 y Wayland.
 1. Enciende el Wiimote con 1+2: se conecta solo si ya está vinculado.
 2. Ejecuta `wii-gamepad` y deja la terminal abierta. Con `./install.sh --service` no hace
    falta: el puente arranca solo al encender el Wiimote y se cierra al apagarlo.
-3. Abre **Wii Gamepad** desde el menú de aplicaciones (`wii-gamepad-config`) para elegir
-   qué botón de Xbox corresponde a cada botón del Wiimote/Nunchuk.
+3. Abre **Wii Gamepad** desde el menú de aplicaciones (`wii-gamepad-config`).
+
+A la izquierda están los Wiimotes conectados (con su número de jugador y su batería) y los
+perfiles. En la página de cada Wiimote eliges su perfil, le pones nombre, pruebas la
+vibración y ves su mando virtual en vivo. En la de cada perfil eliges qué botón de Xbox
+corresponde a cada botón del Wiimote/Nunchuk.
+
+![Editor de perfiles](docs/perfil.png)
+
+La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega), sigue el tema
+claro u oscuro del sistema y tiene animaciones. En el menú ☰ → **Preferencias** están el
+tema, un interruptor para quitar las animaciones, los avisos y el modo mouse.
+
+![Tema oscuro](docs/ventana-oscura.png)
 
 Los cambios se aplican al instante, sin reiniciar nada. Se guardan en
 `~/.config/wii-gamepad/config.json`, con un perfil por juego:
 
 | Perfil | Pensado para |
 |---|---|
-| Recomendado (Nunchuk) | Uso general; es la base de los perfiles creados con **Nuevo** |
+| Recomendado (Nunchuk) | Uso general; es la base de los perfiles creados con **+** |
 | Rocket League | Nunchuk: stick y Z/C para acelerar y frenar; flechas: X/Y/LB/RB |
 | Geometry Dash | A, B y Z saltan |
 | Roblox | Girar el Wiimote mueve la cámara (giroscopio) |
 | Wiimote de lado (sin Nunchuk) | Wiimote en horizontal, estilo NES |
 | Steam Input (1:1) | Remapear en Steam Input (ver abajo) |
 
-Para arrancar con un perfil concreto: `wii-gamepad --profile "Geometry Dash"`.
+El perfil **por defecto** (la estrella) es el de los Wiimotes que no tienen uno elegido.
+Para cambiarlo desde la terminal: `wii-gamepad --profile "Geometry Dash"`.
+
+## Varios Wiimotes
+
+Conecta hasta 4 Wiimotes a la vez: cada uno es un jugador con su propio mando Xbox virtual,
+y su LED muestra el número (1 a 4). Cada Wiimote recuerda su perfil y su nombre (se
+reconoce por su dirección Bluetooth), así que uno puede jugar con «Rocket League» y otro
+con «Recomendado».
+
+Si un Wiimote se apaga, su mando virtual sigue existiendo: el juego no lo pierde y, al
+volver a encenderlo, recupera su mismo número. El modo mouse lo usa un Wiimote a la vez;
+en Preferencias eliges si puede usarlo cualquiera o solo el jugador 1.
 
 ### Layout recomendado (Wiimote + Nunchuk)
 
@@ -130,7 +157,7 @@ y vuelve a ser mando de juego (vibra y suena al cambiar). Siempre arranca en mod
 | Cruceta ← → | Atrás / Adelante (Alt+← / Alt+→) |
 | 1 / 2 / Home | Esc / Teclado en pantalla / Super |
 
-Todo se cambia en **Modo mouse…**: la combinación, cada botón, la velocidad y con qué se
+Todo se cambia en **Preferencias → Modo mouse**: la combinación, cada botón, la velocidad y con qué se
 mueve el puntero (stick, giroscopio o cruceta; el giroscopio tiene casillas para invertir
 cada eje). Sin Nunchuk, la cruceta mueve el puntero.
 
@@ -172,7 +199,7 @@ Si cambias de perfil aquí con un layout de Steam puesto, ese layout queda descu
 ## Giroscopio (Motion Plus)
 
 Si tu Wiimote tiene Motion Plus (los modelos «-TR» lo traen integrado), puede mover la
-cámara. Se activa en el panel «Giroscopio» y viene puesto en el stick derecho en los
+cámara. Se activa en la sección «Giroscopio» del perfil y viene puesto en el stick derecho en los
 perfiles Recomendado y Roblox. Se calibra solo cada vez que el Wiimote queda quieto un
 segundo. Hay dos modos:
 
@@ -180,32 +207,33 @@ segundo. Hay dos modos:
 - **Apuntar (estilo Wii):** apuntar a un lado hace que la cámara siga girando hacia ese
   lado. Apunta adonde quieras que sea «el frente» y presiona **B + Cruceta ↓** para
   recentrar (sentirás un toque de vibración). La combinación se cambia o se desactiva
-  en la ventana; en modo Velocidad sirve para recalibrar el giroscopio al instante.
+  en Preferencias; en modo Velocidad sirve para recalibrar el giroscopio al instante.
 
 ## Vibración
 
 Los juegos que hacen vibrar el mando de Xbox también hacen vibrar el Wiimote. Su motor
 solo enciende o apaga, así que las vibraciones suaves se notan entrecortadas. Se
-desactiva con «Vibrar cuando el juego lo pida», y «Probar vibración» la comprueba.
+desactiva en Preferencias («Vibrar cuando el juego lo pida»), y «Probar vibración», en la
+página de cada Wiimote, la comprueba.
 
 ## Avisos y batería
 
-![Ventana de avisos](docs/sonidos.png)
+![Preferencias: avisos](docs/avisos.png)
 
 Suena un aviso al conectar el Wiimote, al apagarse, con la batería baja, al recentrar el
 giroscopio, al conectar o quitar el Nunchuk y al cambiar al modo mouse. Se oye en la PC; al
-conectar, además, el Wiimote vibra. En **Avisos…** eliges cada sonido (o «Ninguno») y si
+conectar, además, el Wiimote vibra. En **Preferencias → Avisos** eliges cada sonido (o «Ninguno») y si
 quieres también una notificación de escritorio. Por defecto la hay al conectar (con el nivel
 de batería), al desconectar y cuando la batería baja del 20 % y del 10 %. Para añadir tus
 sonidos, cópialos a `~/.config/wii-gamepad/sonidos/`.
 
-La ventana muestra la batería del Wiimote junto al título. Las notificaciones usan
+La batería de cada Wiimote se ve en la barra lateral y en su página. Las notificaciones usan
 `notify-send` (paquete `libnotify`), que instala `install.sh`.
 
 ## Ahorro de batería
 
 Si no tocas el Wiimote en 10 minutos el puente lo desconecta y se apaga solo. Para
-volver a usarlo presiona 1+2. El tiempo se cambia en la ventana («Apagar sin uso») o
+volver a usarlo presiona 1+2. El tiempo se cambia en Preferencias («Apagar sin uso») o
 con `wii-gamepad --idle 20` (`--idle 0` lo desactiva).
 
 El acelerómetro solo se activa en los perfiles que usan la inclinación, porque
@@ -216,13 +244,15 @@ encendido hace que el Wiimote transmita sin parar y gaste más pila.
 - **Roblox (Sober):** el instalador le da acceso a mandos (`flatpak override --device=input`).
   Si lo instalas después, ejecuta de nuevo `./install.sh`.
 - **Mando no detectado en un juego de Steam:** en *Propiedades → Mando*, activa Steam Input.
-- **Inclinación:** si la cámara va al revés, marca «Invertir eje vertical» en la ventana.
+- **Inclinación:** si la cámara va al revés, activa «Invertir eje vertical» en el perfil.
+- **Ventana clásica:** `WII_GAMEPAD_TK=1 wii-gamepad-config` abre la ventana anterior (Tkinter),
+  la que se usa donde no hay libadwaita 1.5.
 
 ## Pruebas
 
 Sin Wiimote: crean un Wiimote, Nunchuk y Motion Plus falsos con `uinput` y comprueban lo
 que sale por el mando virtual (botones, sticks, giroscopio, vibración, perfiles en vivo,
-modo mouse y desconexiones). La segunda instala la app en 7 distros con contenedores.
+modo mouse, desconexiones y dos Wiimotes a la vez). La segunda instala la app en 7 distros con contenedores.
 
 ```sh
 python3 tests/test_bridge.py   # necesita haber ejecutado install.sh

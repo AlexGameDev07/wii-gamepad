@@ -273,6 +273,7 @@ class App(tk.Tk):
         ttk.Button(bottom, text="Restaurar perfil", command=self.reset_profile).pack(side="right", padx=2)
         ttk.Button(bottom, text="Avisos…", command=self.open_sounds).pack(side="right", padx=2)
         ttk.Button(bottom, text="Modo mouse…", command=self.open_mouse).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Wiimotes…", command=self.open_wiimotes).pack(side="right", padx=2)
 
     # --- perfiles ---------------------------------------------------------------
     def profile(self):
@@ -387,6 +388,40 @@ class App(tk.Tk):
             subprocess.Popen(["xdg-open", str(user_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         ttk.Button(f, text="Abrir carpeta", command=open_dir).grid(row=r + 1, column=0, sticky="w", pady=(6, 0))
+
+    def open_wiimotes(self):
+        """Perfil de cada Wiimote (la ventana con GTK4 muestra mucho más)."""
+        if getattr(self, "wiimotes_win", None) and self.wiimotes_win.winfo_exists():
+            self.wiimotes_win.lift()
+            return
+        win = self.wiimotes_win = tk.Toplevel(self)
+        win.title("Wiimotes")
+        win.configure(bg=BG)
+        f = self.panel(win, "Perfil de cada Wiimote")
+        f.pack(fill="both", expand=True, padx=12, pady=12)
+        devices = self.cfg["devices"]
+        players = (wg.read_state() or {}).get("players", [])
+        known = {p["id"]: f"{p['name']} (jugador {p['number']})" for p in players}
+        for wid, d in devices.items():
+            known.setdefault(wid, d.get("name") or wid)
+        if not known:
+            ttk.Label(f, text="Enciende un Wiimote (1+2) para elegir su perfil.", style="Muted.TLabel").grid(
+                row=1, column=0, sticky="w")
+        variables = {}
+        for r, (wid, label) in enumerate(known.items(), start=1):
+            options = {"": f"Por defecto ({self.cfg['active']})"} | {n: n for n in self.cfg["profiles"]}
+
+            def changed(wid=wid, options=options):
+                choice = {v: k for k, v in options.items()}[variables[wid].get()]
+                d = devices.setdefault(wid, {})
+                if choice:
+                    d["profile"] = choice
+                else:
+                    d.pop("profile", None)
+                self.save()
+
+            variables[wid] = self.combo(f, r, label, options, changed)
+            variables[wid].set(options.get(devices.get(wid, {}).get("profile", ""), options[""]))
 
     def open_mouse(self):
         if getattr(self, "mouse_win", None) and self.mouse_win.winfo_exists():

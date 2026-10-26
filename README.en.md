@@ -27,6 +27,7 @@ There are other ways to use a Wiimote on Linux, but none of them bring all of th
 | Gyro (Motion Plus) as a stick, Wii-style "aim" mode | ✅ | ❌ | — | ✅ | ⚠️ no aim mode |
 | Mouse mode and on-screen keyboard driven by the Wiimote | ✅ | ⚠️ mouse only | ❌ | ❌ | ❌ |
 | Starts and stops with the Wiimote; saves battery | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Up to 4 Wiimotes at once, each with its own profile | ✅ | ⚠️ one process per Wiimote | — | ✅ | — |
 | Maintained | ✅ | ❌ abandoned | ⚠️ barely | ✅ | ✅ |
 
 It relies on the kernel's own driver (`hid-wiimote`), so it doesn't reimplement the Wiimote
@@ -63,7 +64,9 @@ environment.
 | SteamOS, NixOS | Not supported by the installer (manual install) |
 
 Requirements: a kernel with `hid-wiimote` and `uinput` (every common one), BlueZ, Python 3.9+
-and `sudo` or `doas`. Works on X11 and Wayland.
+and `sudo` or `doas`. The window uses GTK4 and libadwaita 1.5 or newer (installed by
+`install.sh`); older distros such as Debian 12 get the classic window instead. Works on X11 and
+Wayland.
 
 ## Pair the Wiimote (first time only)
 
@@ -81,13 +84,28 @@ and `sudo` or `doas`. Works on X11 and Wayland.
 1. Turn the Wiimote on with 1+2.
 2. With `--service` the bridge starts by itself; otherwise run `wii-gamepad` and keep the
    terminal open.
-3. Open **Wii Gamepad** from the app menu (`wii-gamepad-config`) to choose which Xbox button
-   each Wiimote/Nunchuk button maps to.
+3. Open **Wii Gamepad** from the app menu (`wii-gamepad-config`).
+
+The sidebar lists the connected Wiimotes (player number and battery) and the profiles. Each
+Wiimote's page sets its profile and name, tests rumble and shows its virtual controller live;
+each profile's page chooses which Xbox button every Wiimote/Nunchuk button maps to. The window
+adapts to its size, follows the system's light or dark style and is animated; ☰ →
+**Preferencias** has the theme, a switch to turn animations off, alerts and mouse mode.
+
+![Profile editor](docs/perfil.png)
 
 Changes apply instantly and are saved in `~/.config/wii-gamepad/config.json`, with one profile
 per game: Recommended (Nunchuk), Rocket League, Geometry Dash, Roblox (gyro camera),
-Sideways Wiimote (NES style) and Steam Input (1:1). Start with a specific profile using
-`wii-gamepad --profile "Geometry Dash"`.
+Sideways Wiimote (NES style) and Steam Input (1:1). The **default** profile (the star) is used by
+Wiimotes without one of their own; `wii-gamepad --profile "Geometry Dash"` changes it.
+
+## Several Wiimotes
+
+Connect up to 4 Wiimotes: each one is a player with its own virtual Xbox controller, and its LED
+shows the player number. Every Wiimote remembers its profile and name (by its Bluetooth address).
+If one turns off, its virtual controller stays, so the game doesn't lose it and the Wiimote gets
+the same number back. One Wiimote at a time can use mouse mode; Preferences chooses whether
+anyone can or only player 1.
 
 ### Recommended layout (Wiimote + Nunchuk)
 
@@ -109,7 +127,7 @@ Sideways Wiimote (NES style) and Steam Input (1:1). Start with a specific profil
 Press **+ and − together** and the Wiimote drives the desktop mouse; press them again to go back
 to gamepad mode (it rumbles and plays a sound). Nunchuk stick (or gyro, or D-pad) moves the
 pointer, A/Z click, the D-pad scrolls and goes back/forward, and 2 opens the on-screen keyboard.
-Everything is configurable in **Modo mouse…**.
+Everything is configurable in **Preferencias → Modo mouse**.
 
 ### On-screen keyboard
 
@@ -136,10 +154,10 @@ Steam, or keep Steam's default layout and use this app's profiles.
 - **Rumble:** games that rumble an Xbox controller rumble the Wiimote too (its motor is on/off
   only, so soft rumble feels choppy).
 - **Alerts:** a sound plays on the PC on connect, disconnect, low battery, recenter, Nunchuk and
-  mouse mode. In **Avisos…** you choose each sound and whether it also shows a desktop
+  mouse mode. In **Preferencias → Avisos** you choose each sound and whether it also shows a desktop
   notification (by default: connect with the battery level, disconnect, and battery below 20 %
-  and 10 %). Add your own sounds to `~/.config/wii-gamepad/sonidos/`. The window shows the
-  Wiimote's battery next to its title.
+  and 10 %). Add your own sounds to `~/.config/wii-gamepad/sonidos/`. Each Wiimote's battery
+  shows in the sidebar and on its page.
 - **Battery:** after 10 idle minutes the Wiimote is turned off (`wii-gamepad --idle 20` changes
   it, `--idle 0` disables it). The accelerometer is only enabled by profiles that use tilt.
 
@@ -147,7 +165,7 @@ Steam, or keep Steam's default layout and use this app's profiles.
 
 No Wiimote needed: they create a fake Wiimote, Nunchuk and Motion Plus with `uinput` and check
 what comes out of the virtual controller (buttons, sticks, gyro, rumble, live profiles, mouse
-mode and disconnects). The second one installs the app on 7 distros using containers.
+mode, disconnects and two Wiimotes at once). The second one installs the app on 7 distros using containers.
 
 ```sh
 python3 tests/test_bridge.py   # requires having run install.sh

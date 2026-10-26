@@ -16,7 +16,9 @@ BIN_DIR="$HOME/.local/bin"
 SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UDEV_RULE=/etc/udev/rules.d/65-wii-gamepad.rules
 MODULES_CONF=/etc/modules-load.d/wii-gamepad.conf
-DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP.desktop"
+APP_ID=io.github.alexgamedev07.WiiGamepad  # el de la ventana GTK: el .desktop se llama igual
+DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP_ID.desktop"
+OLD_DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP.desktop"  # versiones anteriores
 ICON_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/$APP.svg"
 
 WANT_SERVICE=0 HIDE_RAW=0 UNINSTALL=0
@@ -51,7 +53,7 @@ has_systemd() { [ -d /run/systemd/system ]; }
 reload_udev() {
     if command -v udevadm >/dev/null; then
         $SUDO udevadm control --reload-rules 2>/dev/null || true
-        $SUDO udevadm trigger --subsystem-match=input --subsystem-match=misc 2>/dev/null || true
+        $SUDO udevadm trigger --subsystem-match=input --subsystem-match=misc --subsystem-match=leds 2>/dev/null || true
     fi
 }
 
@@ -60,7 +62,8 @@ if [ "$UNINSTALL" -eq 1 ]; then
     if has_systemd && command -v systemctl >/dev/null; then
         systemctl --user disable --now "$APP.service" 2>/dev/null || true
     fi
-    rm -f "$SERVICE_DIR/$APP.service" "$BIN_DIR/$APP" "$BIN_DIR/$APP-config" "$DESKTOP_FILE" "$ICON_FILE"
+    rm -f "$SERVICE_DIR/$APP.service" "$BIN_DIR/$APP" "$BIN_DIR/$APP-config" "$DESKTOP_FILE" "$OLD_DESKTOP_FILE" \
+        "$ICON_FILE"
     rm -rf "$DATA_DIR"
     $SUDO rm -f "$UDEV_RULE" "$MODULES_CONF"
     reload_udev
@@ -75,29 +78,29 @@ info "Distribución detectada: ${PRETTY_NAME:-desconocida}"
 # Cada gestor: comando de instalación, paquetes base, paquete evdev,
 # y paquetes para compilar evdev con pip si el paquete del sistema no existe.
 if command -v dnf >/dev/null; then
-    PM_INSTALL="dnf install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject gobject-introspection at-spi2-core"; EVDEV="python3-evdev"; NOTIFY="libnotify"
+    PM_INSTALL="dnf install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject gobject-introspection at-spi2-core"; EVDEV="python3-evdev"; NOTIFY="libnotify"; GTK="gtk4 libadwaita python3-gobject"
     BUILD="gcc python3-devel kernel-headers"
 elif command -v apt-get >/dev/null; then
-    PM_INSTALL="apt-get install -y"; BASE="python3 python3-tk bluez"; KB="python3-gi gir1.2-atspi-2.0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-bin"
+    PM_INSTALL="apt-get install -y"; BASE="python3 python3-tk bluez"; KB="python3-gi gir1.2-atspi-2.0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-bin"; GTK="gir1.2-gtk-4.0 gir1.2-adw-1 python3-gi"
     BUILD="gcc python3-dev python3-venv linux-libc-dev"
     $SUDO apt-get update
 elif command -v pacman >/dev/null; then
-    PM_INSTALL="pacman -Syu --needed --noconfirm"; BASE="python tk bluez bluez-utils"; KB="python-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"
+    PM_INSTALL="pacman -Syu --needed --noconfirm"; BASE="python tk bluez bluez-utils"; KB="python-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"; GTK="gtk4 libadwaita python-gobject"
     BUILD="gcc linux-api-headers"
 elif command -v zypper >/dev/null; then
-    PM_INSTALL="zypper --non-interactive install"; BASE="python3 python3-tk bluez"; KB="python3-gobject typelib-1_0-Atspi-2_0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-tools"
+    PM_INSTALL="zypper --non-interactive install"; BASE="python3 python3-tk bluez"; KB="python3-gobject typelib-1_0-Atspi-2_0 libxkbcommon0"; EVDEV="python3-evdev"; NOTIFY="libnotify-tools"; GTK="typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 python3-gobject"
     BUILD="gcc python3-devel linux-glibc-devel"
 elif command -v xbps-install >/dev/null; then
-    PM_INSTALL="xbps-install -Sy"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python3-evdev"; NOTIFY="libnotify"
+    PM_INSTALL="xbps-install -Sy"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python3-evdev"; NOTIFY="libnotify"; GTK="gtk4 libadwaita python3-gobject"
     BUILD="gcc python3-devel kernel-libc-headers"
 elif command -v apk >/dev/null; then
-    PM_INSTALL="apk add"; BASE="python3 python3-tkinter bluez"; KB="py3-gobject3 at-spi2-core libxkbcommon"; EVDEV="py3-evdev"; NOTIFY="libnotify"
+    PM_INSTALL="apk add"; BASE="python3 python3-tkinter bluez"; KB="py3-gobject3 at-spi2-core libxkbcommon"; EVDEV="py3-evdev"; NOTIFY="libnotify"; GTK="gtk4.0 libadwaita py3-gobject3"
     BUILD="gcc musl-dev python3-dev linux-headers"
 elif command -v emerge >/dev/null; then
-    PM_INSTALL="emerge --noreplace"; BASE="dev-lang/python net-wireless/bluez"; KB="dev-python/pygobject app-accessibility/at-spi2-core x11-libs/libxkbcommon"; EVDEV="dev-python/evdev"; NOTIFY="x11-libs/libnotify"
+    PM_INSTALL="emerge --noreplace"; BASE="dev-lang/python net-wireless/bluez"; KB="dev-python/pygobject app-accessibility/at-spi2-core x11-libs/libxkbcommon"; EVDEV="dev-python/evdev"; NOTIFY="x11-libs/libnotify"; GTK="gui-libs/gtk gui-libs/libadwaita dev-python/pygobject"
     BUILD="sys-kernel/linux-headers"
 elif command -v eopkg >/dev/null; then
-    PM_INSTALL="eopkg install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"
+    PM_INSTALL="eopkg install -y"; BASE="python3 python3-tkinter bluez"; KB="python3-gobject at-spi2-core libxkbcommon"; EVDEV="python-evdev"; NOTIFY="libnotify"; GTK="libgtk-4 libadwaita python3-gobject"
     BUILD="gcc python3-devel linux-headers"
 else
     PM_INSTALL=""
@@ -117,6 +120,9 @@ if [ -n "$PM_INSTALL" ]; then
     info "Instalando notify-send para las notificaciones: $NOTIFY"
     # shellcheck disable=SC2086
     pm $NOTIFY || warn "Sin notify-send no habrá notificaciones de escritorio (los sonidos sí funcionan)"
+    info "Instalando GTK4 y libadwaita para la ventana de configuración: $GTK"
+    # shellcheck disable=SC2086
+    pm $GTK || warn "Sin GTK4/libadwaita se abrirá la ventana de configuración clásica"
 fi
 
 command -v python3 >/dev/null || die "python3 no está disponible."
@@ -182,6 +188,8 @@ info "Instalando regla udev en $UDEV_RULE"
         echo '# Arranca el puente (servicio de usuario) cuando se conecta el Wiimote'
         echo "SUBSYSTEM==\"input\", KERNEL==\"event*\", ATTRS{name}==\"Nintendo Wii Remote\", TAG+=\"systemd\", ENV{SYSTEMD_USER_WANTS}+=\"$APP.service\""
     fi
+    echo '# El LED del Wiimote muestra el número de jugador'
+    echo 'SUBSYSTEM=="leds", KERNEL=="*:blue:p[0-3]", DRIVERS=="wiimote", RUN+="/bin/chmod 0666 /sys%p/brightness"'
     if [ "$HIDE_RAW" -eq 1 ]; then
         echo '# Oculta el Wiimote original a Steam/SDL; los juegos solo ven el mando virtual'
         echo 'SUBSYSTEM=="input", ATTRS{name}=="Nintendo Wii Remote*", ENV{ID_INPUT_JOYSTICK}="0"'
@@ -199,7 +207,8 @@ fi
 
 # --- 5. Programa ----------------------------------------------------------------
 info "Instalando el programa en $DATA_DIR"
-install -m 755 "$SRC_DIR/wii_gamepad.py" "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$DATA_DIR/"
+install -m 755 "$SRC_DIR/wii_gamepad.py" "$SRC_DIR/wii_gamepad_config.py" "$SRC_DIR/wii_gamepad_adw.py" \
+    "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$DATA_DIR/"
 install -D -m 644 "$SRC_DIR/$APP.svg" "$ICON_FILE"
 install -m 644 "$SRC_DIR/$APP.svg" "$DATA_DIR/"  # icono de la ventana
 rm -rf "$DATA_DIR/sonidos"  # los incluidos se reemplazan; los del usuario están en ~/.config
@@ -211,12 +220,16 @@ exec "$PYTHON" "$DATA_DIR/wii_gamepad.py" "\$@"
 EOF
 cat > "$BIN_DIR/$APP-config" <<EOF
 #!/bin/sh
-exec "$PYTHON" "$DATA_DIR/wii_gamepad_gui.py" "\$@"
+exec "$PYTHON" "$DATA_DIR/wii_gamepad_config.py" "\$@"
 EOF
 chmod 755 "$BIN_DIR/$APP" "$BIN_DIR/$APP-config"
-"$PYTHON" -c 'import tkinter' 2>/dev/null || warn "Falta tkinter: la ventana de configuración no abrirá (instala python3-tk)."
+if ! "$PYTHON" -c 'import sys; sys.path.insert(0, sys.argv[1]); import wii_gamepad_config as c; sys.exit(not c.adwaita_ok())' "$DATA_DIR" 2>/dev/null; then
+    "$PYTHON" -c 'import tkinter' 2>/dev/null \
+        || warn "Falta GTK4/libadwaita y también tkinter: la ventana de configuración no abrirá (instala python3-tk)."
+fi
 
 mkdir -p "$(dirname "$DESKTOP_FILE")"
+rm -f "$OLD_DESKTOP_FILE"
 cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
