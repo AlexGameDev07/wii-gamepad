@@ -40,6 +40,9 @@ KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess",
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0660", GROUP="input", TAG+="uaccess"
 # El LED del Wiimote muestra el número de jugador
 SUBSYSTEM=="leds", KERNEL=="*:blue:p[0-3]", DRIVERS=="wiimote", RUN+="/bin/chmod 0666 /sys%p/brightness"
+# Oculta el Wiimote original (y su Nunchuk) a los juegos: solo ven el mando virtual
+SUBSYSTEM=="input", ATTRS{name}=="Nintendo Wii Remote*", ENV{ID_INPUT_JOYSTICK}=""
+SUBSYSTEM=="input", KERNEL=="js*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0600"
 # Arranca el puente (servicio de usuario) cuando se conecta el Wiimote
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="wii-gamepad.service"
 EOF

@@ -48,7 +48,6 @@ cd wii-gamepad
 |---|---|
 | `./install.sh` | Dependencies, permissions, commands and menu entry |
 | `--service` | Also starts the bridge when the Wiimote turns on and stops it when it turns off |
-| `--hide-raw` | Steam stops showing the raw Wiimote as a second controller |
 | `--uninstall` | Removes everything (system packages stay installed) |
 
 The installer detects your distro, installs packages, enables Bluetooth and loads the kernel

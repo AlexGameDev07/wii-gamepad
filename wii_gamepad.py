@@ -191,6 +191,9 @@ IDLE_TIMEOUT_MIN = GLOBAL_OPTIONS["idle_timeout_min"]  # minutos sin uso antes d
 MOTION_THRESHOLD = 25  # cambio del acelerómetro (~0.25 g) que cuenta como "en uso"
 ACTIVITY = 0.15  # un stick analógico cuenta como "en uso" (para el apagado) pasado este valor
 ONCE_WAIT = 15  # con --once, segundos que espera al Wiimote antes de rendirse
+NUNCHUK_SPAN = 128  # el driver da el stick del Nunchuk en -128..127
+NUNCHUK_REST = 25  # más lejos del 0 que esto, el stick no estaba en reposo al conectarlo
+INPUT_CHECK = 0.1  # cada cuánto mirar si apareció un nodo en /dev/input (p. ej. el Nunchuk)
 UNPLUG_GRACE = 1.5  # al apagarse el Wiimote se va también el Nunchuk: su aviso espera por si es eso
 BATTERY_LOW = (20, 10)  # avisa al bajar de cada nivel (%), una vez por conexión
 BATTERY_CHECK = 120  # segundos entre lecturas de la batería (cada una le pide su estado al Wiimote)
@@ -294,12 +297,13 @@ class Axis:
     """Normaliza un eje del Nunchuk/acelerómetro a -1..1 con zona muerta
     y autocalibración del rango."""
 
-    def __init__(self, center, span, deadzone, invert=False):
+    def __init__(self, center, span, deadzone, invert=False, limit=math.inf):
         self.center, self.span, self.deadzone, self.invert = center, span, deadzone, invert
+        self.limit = limit  # el rango aprendido nunca pasa de esto (un pico raro lo dejaría lento)
 
     def convert(self, raw):
         v = raw - self.center
-        self.span = max(self.span, abs(v))
+        self.span = min(self.limit, max(self.span, abs(v)))
         n = v / self.span
         if abs(n) < self.deadzone:
             return 0.0
@@ -677,8 +681,10 @@ def set_leds(group, number):
             pass
 
 
-def find(name, group=None):
+def find(name, group=None, skip=()):
     for path in evdev.list_devices():
+        if path in skip:
+            continue
         # Mirar el nombre en sysfs evita abrir cada dispositivo (abrir el
         # acelerómetro lo enciende y gasta batería del Wiimote).
         sys_name = sysfs(path, "name")
@@ -689,7 +695,8 @@ def find(name, group=None):
         try:
             d = evdev.InputDevice(path)
         except PermissionError:
-            if path not in warned:
+            # Un nodo recién creado es de root hasta que udev le aplica la regla: no avisar aún.
+            if path not in warned and time.time() - os.stat(path).st_ctime > 2:
                 warned.add(path)
                 print(f"Sin permiso para leer {path}; ejecuta install.sh o reinicia sesión")
             continue
@@ -785,7 +792,7 @@ class Player:
         self.down, self.suppressed = set(), set()  # botones físicos apretados / tragados por la combinación
         self.mouse_stick = [0.0, 0.0]  # stick del Nunchuk en modo mouse
         self.dpad_since = None  # desde cuándo la cruceta mueve el puntero (para acelerarlo)
-        self.attach_after = 0.0  # tras quitar un accesorio, esperar a que su nodo desaparezca
+        self.stale = set()  # nodos de accesorios quitados que aún no desaparecen
         self.nunchuk_gone = None  # cuándo se quitó el Nunchuk, si su aviso está pendiente
         self.motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
         self.battery = self.battery_level = None
@@ -833,7 +840,8 @@ class Player:
     def make_axes(self):
         p = self.profile
         cx, cy = getattr(self, "nunchuk_center", (0, 0))
-        self.nunchuk_axes = (Axis(cx, 95, p["deadzone"]), Axis(cy, 95, p["deadzone"], invert=True))
+        self.nunchuk_axes = (Axis(cx, 95, p["deadzone"], limit=NUNCHUK_SPAN),
+                             Axis(cy, 95, p["deadzone"], invert=True, limit=NUNCHUK_SPAN))
         span = 100 / max(0.1, p["tilt_sensitivity"])
         self.tilt_axes = (Axis(0, span, 0.15, invert=True), Axis(0, span, 0.15, invert=p["invert_tilt_y"]))
         old = getattr(self, "gyro_axes", {})  # conservar la calibración al recargar
@@ -850,10 +858,8 @@ class Player:
         return {NUNCHUK} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
 
     def attach_extras(self, first=False):
-        if time.monotonic() < self.attach_after:
-            return
         for name in self.wanted() - self.extras.keys():
-            if d := find(name, self.group):
+            if d := find(name, self.group, skip=self.stale):
                 try:
                     d.grab()
                 except OSError:  # se está quitando justo ahora
@@ -862,7 +868,10 @@ class Player:
                 self.devices[d.fd] = d
                 self.extras[name] = d
                 if name == NUNCHUK:
-                    self.nunchuk_center = (d.absinfo(e.ABS_HAT0X).value, d.absinfo(e.ABS_HAT0Y).value)
+                    # El driver ya centra el stick en 0. Si al conectarlo se estaba moviendo (o
+                    # llegó un dato basura al enchufarlo), ese no es el reposo: mejor 0.
+                    center = (d.absinfo(e.ABS_HAT0X).value, d.absinfo(e.ABS_HAT0Y).value)
+                    self.nunchuk_center = tuple(c if abs(c) <= NUNCHUK_REST else 0 for c in center)
                     self.make_axes()
                     print(f"[{self.label}] Nunchuk conectado")
                     if not first:  # al encender ya suena el aviso del Wiimote
@@ -876,12 +885,13 @@ class Player:
         if name == NUNCHUK:
             self.mouse_stick = [0.0, 0.0]
         if gone:
-            self.attach_after = time.monotonic() + 2
+            self.stale.add(d.path)
             if name == NUNCHUK:
                 self.nunchuk_gone = time.monotonic()
 
     def scan(self):
         present = set(evdev.list_devices())
+        self.stale &= present
         for name, d in list(self.extras.items()):
             if d.path not in present or name not in self.wanted():
                 self.detach(name, d.path not in present)
@@ -1283,9 +1293,19 @@ class Bridge:
         seen = False
         last_scan = -math.inf
         timeout = 0.0
+        inputs, fast_until = None, 0.0
         while True:
             now = time.monotonic()
-            if now - last_scan >= 1 or self.rescan:
+            # Un accesorio enchufado crea un nodo nuevo que los juegos también ven: hay que
+            # tomarlo (grab) enseguida o el juego lo cuenta como otro jugador.
+            try:
+                changed, inputs = inputs != (m := os.stat("/dev/input").st_mtime_ns), m
+            except OSError:
+                changed = False
+            if changed:  # el nodo es de root hasta que udev le da permisos: reintentar seguido
+                fast_until = now + 2
+            every = INPUT_CHECK if now < fast_until else 1
+            if now - last_scan >= every or self.rescan or changed:
                 last_scan, self.rescan = now, False
                 if self.config_changed():
                     self.reload()
@@ -1312,7 +1332,9 @@ class Bridge:
                     except OSError:
                         self.remove(fds[fd], gone=True)
             now = time.monotonic()
-            timeout = last_scan + 1 - now
+            timeout = last_scan + every - now
+            if self.players:
+                timeout = min(timeout, INPUT_CHECK)
             for p in list(self.players.values()):
                 timeout = min(timeout, p.tick(now))
             if owner := self.mouse_owner:

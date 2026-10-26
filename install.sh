@@ -5,7 +5,6 @@
 #
 #   ./install.sh               instala dependencias, permisos y el comando wii-gamepad
 #   ./install.sh --service     además lo arranca al conectar el Wiimote y lo cierra al desconectarlo
-#   ./install.sh --hide-raw    oculta el Wiimote original a Steam/SDL (evita mandos duplicados)
 #   ./install.sh --uninstall   lo quita todo
 set -euo pipefail
 
@@ -21,14 +20,14 @@ DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP_ID.desktop"
 OLD_DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP.desktop"  # versiones anteriores
 ICON_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/$APP.svg"
 
-WANT_SERVICE=0 HIDE_RAW=0 UNINSTALL=0
+WANT_SERVICE=0 UNINSTALL=0
 ME="$(id -un)"
 for arg in "$@"; do
     case "$arg" in
         --service) WANT_SERVICE=1 ;;
-        --hide-raw) HIDE_RAW=1 ;;
+        --hide-raw) ;;  # ya siempre se oculta; se acepta por compatibilidad
         --uninstall) UNINSTALL=1 ;;
-        -h|--help) sed -n '4,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '4,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Opción desconocida: $arg" >&2; exit 1 ;;
     esac
 done
@@ -190,10 +189,9 @@ info "Instalando regla udev en $UDEV_RULE"
     fi
     echo '# El LED del Wiimote muestra el número de jugador'
     echo 'SUBSYSTEM=="leds", KERNEL=="*:blue:p[0-3]", DRIVERS=="wiimote", RUN+="/bin/chmod 0666 /sys%p/brightness"'
-    if [ "$HIDE_RAW" -eq 1 ]; then
-        echo '# Oculta el Wiimote original a Steam/SDL; los juegos solo ven el mando virtual'
-        echo 'SUBSYSTEM=="input", ATTRS{name}=="Nintendo Wii Remote*", ENV{ID_INPUT_JOYSTICK}="0"'
-    fi
+    echo '# Oculta el Wiimote original (y su Nunchuk) a los juegos: solo ven el mando virtual'
+    echo 'SUBSYSTEM=="input", ATTRS{name}=="Nintendo Wii Remote*", ENV{ID_INPUT_JOYSTICK}=""'
+    echo 'SUBSYSTEM=="input", KERNEL=="js*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0600"'
 } | $SUDO tee "$UDEV_RULE" >/dev/null
 reload_udev
 

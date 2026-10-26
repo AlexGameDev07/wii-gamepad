@@ -48,7 +48,6 @@ cd wii-gamepad
 |---|---|
 | `./install.sh` | Dependencias, permisos, comandos y acceso en el menú |
 | `--service` | Además arranca el puente solo al encender el Wiimote y lo cierra al apagarlo |
-| `--hide-raw` | Steam deja de mostrar el Wiimote original como segundo mando |
 | `--uninstall` | Lo quita todo (deja instalados los paquetes del sistema) |
 
 El instalador detecta la distro, instala los paquetes, activa el Bluetooth y carga los

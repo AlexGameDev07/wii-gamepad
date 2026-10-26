@@ -55,9 +55,10 @@ class FakeWiimote:
         self.running = True
         threading.Thread(target=self._serve_ff, daemon=True).start()
 
-    def make_nunchuk(self):
+    def make_nunchuk(self, x=0):
+        """x: dónde está el stick al enchufarlo."""
         return UInput({e.EV_KEY: [e.BTN_C, e.BTN_Z],
-                       e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(0, -120, 120, 2, 4, 0)),
+                       e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(x, -120, 120, 2, 4, 0)),
                                   (e.ABS_HAT0Y, AbsInfo(0, -120, 120, 2, 4, 0))]}, name=wg.NUNCHUK, phys=self.id)
 
     def _serve_ff(self):
@@ -342,9 +343,22 @@ def test_bridge(tmp):
         time.sleep(1 + wg.UNPLUG_GRACE + 0.5)
         check("quitar el Nunchuk no desconecta el Wiimote",
               any("Nunchuk desconectado" in l for l in out) and bridge.poll() is None)
-        fake.nunchuk = fake.make_nunchuk()
-        time.sleep(3.5)  # el puente espera 2 s tras quitar un accesorio antes de buscarlo otra vez
+        # Se vuelve a enchufar con el stick movido (al reconectarlo para seguir jugando).
+        fake.nunchuk = fake.make_nunchuk(x=100)
+        time.sleep(0.5)
+        try:  # si el puente ya lo tomó, nadie más puede: los juegos no lo ven como otro jugador
+            node = wait_device(wg.NUNCHUK)
+            node.grab()
+            node.ungrab()
+            grabbed = False
+        except OSError:
+            grabbed = True
+        check("al reconectar el Nunchuk, el puente lo toma enseguida", grabbed)
         reattached = sum("Nunchuk conectado" in l for l in out) == 2
+        drain(pad)
+        fake.stick(110, 0)
+        check("y su stick llega a fondo aunque estuviera movido al enchufarlo",
+              wait_event(pad, axis(e.ABS_X, lambda v: v > 25000)) is not None)
         # Apagar el Wiimote con el Nunchuk puesto: se van los dos, pero solo avisa el Wiimote.
         fake.nunchuk.close()
         fake.motionplus.close()
