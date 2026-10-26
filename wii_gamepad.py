@@ -35,6 +35,9 @@ MOTIONPLUS = "Nintendo Wii Remote Motion Plus"
 PAD_NAME = "Microsoft X-Box 360 pad"
 MOUSE_NAME = "Wii Gamepad Mouse"
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wii-gamepad" / "config.json"
+# Qué Wiimotes hay y qué mando virtual maneja cada uno; lo escribe el puente y lo lee la ventana.
+STATE = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "wii-gamepad" / "state.json"
+MAX_PLAYERS = 4  # los LEDs del Wiimote
 
 # Botones de origen: id -> (código evdev, etiqueta)
 SOURCES = {
@@ -69,6 +72,8 @@ RECENTER_COMBOS = {"none": ((), "Desactivada"), "B+Down": (("B", "Down"), "B + C
                    "Z+Down": (("Z", "Down"), "Z + Cruceta ↓"), "C+Down": (("C", "Down"), "C + Cruceta ↓")}
 # Combinación que alterna entre mando de juego y mouse: id -> (fuentes, etiqueta)
 MOUSE_COMBOS = {"none": ((), "Desactivada"), "+-": (("+", "-"), "+ y − a la vez"), "1+2": (("1", "2"), "1 y 2 a la vez")}
+# Quién puede pasar al modo mouse cuando hay varios Wiimotes
+MOUSE_PLAYERS = {"any": "Cualquiera (uno a la vez)", "p1": "Solo el jugador 1"}
 MOUSE_MOVES = {"stick": "Stick del Nunchuk", "gyro": "Giroscopio (apuntar)", "dpad": "Cruceta"}
 # Acciones del modo mouse: id -> (teclas que se aprietan juntas, etiqueta)
 MOUSE_ACTIONS = {
@@ -175,7 +180,11 @@ GLOBAL_OPTIONS = {"idle_timeout_min": 10, "recenter_combo": "B+Down", "rumble": 
                              "recenter": "confirmation_001.ogg", "nunchuk": "toggle_001.ogg",
                              "mouse": "switch_003.ogg", "battery": "bong_001.ogg"},
                   "notifications": {"connect": True, "disconnect": True, "battery": True,
-                                    "recenter": False, "nunchuk": False, "mouse": False}}
+                                    "recenter": False, "nunchuk": False, "mouse": False},
+                  "mouse_players": "any",
+                  # Por Wiimote (su MAC): {"name": ..., "profile": ...}; sin perfil usa "active".
+                  "devices": {},
+                  "ui": {"animations": True, "theme": "system"}}
 IDLE_TIMEOUT_MIN = GLOBAL_OPTIONS["idle_timeout_min"]  # minutos sin uso antes de apagar (0 = nunca)
 MOTION_THRESHOLD = 25  # cambio del acelerómetro (~0.25 g) que cuenta como "en uso"
 ACTIVITY = 0.15  # un stick analógico cuenta como "en uso" (para el apagado) pasado este valor
@@ -216,6 +225,10 @@ def load_config(path=CONFIG):
             cfg["sounds"][k] = v
     for k, v in GLOBAL_OPTIONS["notifications"].items():
         cfg["notifications"].setdefault(k, v)
+    for k, v in GLOBAL_OPTIONS["ui"].items():
+        cfg["ui"].setdefault(k, v)
+    if cfg["mouse_players"] not in MOUSE_PLAYERS:
+        cfg["mouse_players"] = "any"
     for k, v in MOUSE_DEFAULTS.items():
         cfg["mouse"].setdefault(k, copy.deepcopy(v))
     for k, v in MOUSE_DEFAULTS["buttons"].items():
@@ -399,9 +412,11 @@ class Pad:
     """Mando virtual. Varias fuentes pueden apuntar al mismo destino: un
     botón sigue presionado mientras alguna de sus fuentes lo esté."""
 
-    def __init__(self):
+    def __init__(self, number=1):
+        self.phys = f"wii-gamepad/pad{number}"  # así la ventana sabe qué mando es de qué jugador
         self.ui = UInput({e.EV_KEY: XBOX_KEYS, e.EV_ABS: XBOX_ABS, e.EV_FF: [e.FF_RUMBLE]}, name=PAD_NAME,
-                         vendor=0x045E, product=0x028E, version=0x110, bustype=e.BUS_USB, max_effects=16)
+                         vendor=0x045E, product=0x028E, version=0x110, bustype=e.BUS_USB, phys=self.phys,
+                         max_effects=16)
         self.name = PAD_NAME
         self.held = {}    # destino -> fuentes que lo mantienen
         self.analog = {}  # eje -> valor analógico (-1..1)
@@ -591,12 +606,54 @@ def sysfs(dev_path, attr):
         return None
 
 
-def find(name):
+def group_of(dev_path):
+    """Qué Wiimote es: el dispositivo HID del que cuelgan todos sus nodos (botones, Nunchuk,
+    acelerómetro...). Los dispositivos uinput (las pruebas) no tienen padre: van por su phys."""
+    try:
+        return str((Path("/sys/class/input") / Path(dev_path).name / "device" / "device").resolve(strict=True))
+    except OSError:
+        return "phys:" + (sysfs(dev_path, "phys") or "").strip()
+
+
+def device_id(dev_path):
+    """Identificador estable de un Wiimote: su MAC (o el phys de uno falso)."""
+    uevent = sysfs(dev_path, "device/uevent") or ""  # dispositivo HID padre
+    mac = next((l.split("=", 1)[1] for l in uevent.splitlines() if l.startswith("HID_UNIQ=")), "")
+    return mac.upper() or (sysfs(dev_path, "phys") or "").strip()
+
+
+def wiimotes():
+    """Wiimotes conectados, en el orden en que aparecieron: grupo -> nodo de sus botones.
+    Solo mira sysfs, no abre nada."""
+    paths = [p for p in evdev.list_devices() if (sysfs(p, "name") or "").strip() == WIIMOTE]
+    return {group_of(p): p for p in sorted(paths, key=lambda p: int(p.rsplit("event", 1)[-1]))}
+
+
+def find_phys(phys):
+    """Ruta del dispositivo con ese phys (los mandos virtuales se distinguen así), o None."""
+    return next((p for p in evdev.list_devices() if (sysfs(p, "phys") or "").strip() == phys), None)
+
+
+def set_leds(group, number):
+    """Enciende en el Wiimote el LED de su número de jugador. Escribir en los LEDs necesita la
+    regla udev de install.sh; sin ella el Wiimote se queda con el LED que pone el driver."""
+    if not group.startswith("/"):
+        return
+    for led in Path(group).glob("leds/*:blue:p[0-3]"):
+        try:
+            (led / "brightness").write_text("1" if int(led.name[-1]) == number - 1 else "0")
+        except (OSError, ValueError):
+            pass
+
+
+def find(name, group=None):
     for path in evdev.list_devices():
         # Mirar el nombre en sysfs evita abrir cada dispositivo (abrir el
         # acelerómetro lo enciende y gasta batería del Wiimote).
         sys_name = sysfs(path, "name")
         if sys_name is not None and sys_name.strip() != name:
+            continue
+        if group is not None and group_of(path) != group:
             continue
         try:
             d = evdev.InputDevice(path)
@@ -671,9 +728,8 @@ def battery_level(path):
 
 def power_off(dev):
     """Corta el Bluetooth del Wiimote, que al perder la conexión se apaga."""
-    uevent = sysfs(dev.path, "device/uevent") or ""  # dispositivo HID padre
-    mac = next((l.split("=", 1)[1] for l in uevent.splitlines() if l.startswith("HID_UNIQ=")), "")
-    if not mac:
+    mac = device_id(dev.path)
+    if ":" not in mac:
         return False
     try:
         return subprocess.run(["bluetoothctl", "disconnect", mac], capture_output=True, timeout=10).returncode == 0
@@ -681,43 +737,64 @@ def power_off(dev):
         return False
 
 
-class Bridge:
-    def __init__(self, pad, mouse, config_path):
-        self.pad, self.mouse, self.config_path = pad, mouse, config_path
-        self.mtime = None
+
+
+class Player:
+    """Un Wiimote con sus accesorios y el mando virtual que maneja."""
+
+    def __init__(self, bridge, group, wiimote, number, pad):
+        self.bridge, self.group, self.wiimote, self.number, self.pad = bridge, group, wiimote, number, pad
+        self.id = device_id(wiimote.path)
+        self.devices = {wiimote.fd: wiimote}
+        self.extras = {}  # accesorios abiertos: nombre -> dispositivo
         self.rumble = None
         self.down, self.suppressed = set(), set()  # botones físicos apretados / tragados por la combinación
-        self.extras = {}  # accesorios abiertos: nombre -> dispositivo
-        self.mouse_mode = False
         self.mouse_stick = [0.0, 0.0]  # stick del Nunchuk en modo mouse
         self.dpad_since = None  # desde cuándo la cruceta mueve el puntero (para acelerarlo)
-        self.rescan = False  # buscar accesorios ya (p. ej. abrir el Motion Plus al entrar al modo mouse)
-        self.kb = wii_keyboard.Keyboard(mouse.tap)
-        self.reload()
+        self.attach_after = 0.0  # tras quitar un accesorio, esperar a que su nodo desaparezca
+        self.nunchuk_gone = None  # cuándo se quitó el Nunchuk, si su aviso está pendiente
+        self.motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
+        self.battery = self.battery_level = None
+        self.battery_warned = set()  # niveles de BATTERY_LOW ya avisados
+        self.battery_reads = []  # la lectura se hace en otro hilo: puede tardar y frenaría los botones
+        self.idle_off = False
+        self.last_input = self.last_battery = time.monotonic()
 
-    def reload(self):
-        cfg = load_config(self.config_path)
-        self.mtime = self.config_path.stat().st_mtime
-        self.pad.reset()
-        self.mouse.reset()
-        self.idle_timeout = cfg["idle_timeout_min"] * 60
-        self.combo = RECENTER_COMBOS.get(cfg["recenter_combo"], RECENTER_COMBOS["none"])[0]
-        self.mouse_combo = MOUSE_COMBOS.get(cfg["mouse_combo"], MOUSE_COMBOS["none"])[0]
-        self.mouse_cfg = cfg["mouse"]
-        if self.mouse_mode and not self.mouse_combo:  # sin combinación no habría forma de salir
-            self.mouse_mode = False
-            self.kb.hide()
-        if self.mouse_mode and self.mouse_cfg["auto_keyboard"]:
-            self.kb.start_watch()
-        else:
-            self.kb.stop_watch()
-        self.rumble_on = cfg["rumble"]
-        self.sounds = cfg["sounds"]
-        self.notifications = cfg["notifications"]
-        self.profile = cfg["profiles"][cfg["active"]]
+    @property
+    def label(self):
+        return self.bridge.devices.get(self.id, {}).get("name") or f"Jugador {self.number}"
+
+    @property
+    def mouse_mode(self):
+        return self.bridge.mouse_owner is self
+
+    def start(self):
+        self.wiimote.grab()
+        try:
+            self.rumble = Rumble(self.wiimote)
+        except OSError as err:
+            print(f"[{self.label}] El Wiimote no acepta vibración ({err})")
+        self.load_profile()
+        self.attach_extras(first=True)
+        set_leds(self.group, self.number)
+        print(f"[{self.label}] Wiimote conectado -> mando virtual {self.number}")
+        if self.rumble and self.bridge.rumble_on:
+            self.rumble.pulse(0.3)
+        self.battery = battery_path(self.wiimote.path)
+        self.battery_level = battery_level(self.battery)
+        battery = f" · Batería: {self.battery_level} %" if self.battery_level is not None else ""
+        self.bridge.notify("connect", f"{self.label} conectado", f"Mando virtual {self.number}{battery}")
+        self.battery_reads.append(self.battery_level)
+
+    def load_profile(self):
+        cfg = self.bridge.cfg
+        name = self.bridge.devices.get(self.id, {}).get("profile")
+        self.profile_name = name if name in cfg["profiles"] else cfg["active"]
+        self.profile = cfg["profiles"][self.profile_name]
         self.buttons = {SOURCES[s][0]: (s, t) for s, t in self.profile["buttons"].items() if s in SOURCES}
+        self.pad.reset()
         self.make_axes()
-        print(f"Perfil activo: {cfg['active']}")
+        print(f"[{self.label}] Perfil: {self.profile_name}")
 
     def make_axes(self):
         p = self.profile
@@ -730,83 +807,160 @@ class Bridge:
                                      aim=p["gyro_mode"] == "aim", bias=old[code].bias if code in old else None)
                           for code, (i, inv) in GYRO_AXES.items()}
 
-    def config_changed(self):
+    # --- accesorios -------------------------------------------------------------
+    def wanted(self):
+        # El acelerómetro y el Motion Plus solo se abren si el perfil los usa:
+        # abiertos, el Wiimote envía datos sin parar y gasta más batería.
+        p = self.profile
+        gyro = self.bridge.mouse_cfg["move"] == "gyro" if self.mouse_mode else p["gyro"] != "none"
+        return {NUNCHUK} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
+
+    def attach_extras(self, first=False):
+        if time.monotonic() < self.attach_after:
+            return
+        for name in self.wanted() - self.extras.keys():
+            if d := find(name, self.group):
+                try:
+                    d.grab()
+                except OSError:  # se está quitando justo ahora
+                    d.close()
+                    continue
+                self.devices[d.fd] = d
+                self.extras[name] = d
+                if name == NUNCHUK:
+                    self.nunchuk_center = (d.absinfo(e.ABS_HAT0X).value, d.absinfo(e.ABS_HAT0Y).value)
+                    self.make_axes()
+                    print(f"[{self.label}] Nunchuk conectado")
+                    if not first:  # al encender ya suena el aviso del Wiimote
+                        self.bridge.notify("nunchuk", f"{self.label}: Nunchuk conectado")
+
+    def detach(self, name, gone):
+        d = self.extras.pop(name)
+        self.devices.pop(d.fd, None)
+        d.close()
+        self.pad.reset()
+        if name == NUNCHUK:
+            self.mouse_stick = [0.0, 0.0]
+        if gone:
+            self.attach_after = time.monotonic() + 2
+            if name == NUNCHUK:
+                self.nunchuk_gone = time.monotonic()
+
+    def scan(self):
+        present = set(evdev.list_devices())
+        for name, d in list(self.extras.items()):
+            if d.path not in present or name not in self.wanted():
+                self.detach(name, d.path not in present)
+        self.attach_extras()
+
+    # --- eventos ----------------------------------------------------------------
+    def fds(self):
+        return list(self.devices)
+
+    def handle(self, fd):
+        """Lee un dispositivo del Wiimote. Si el que falla es el Wiimote, deja pasar el OSError."""
+        dev = self.devices.get(fd)
+        if dev is None:  # se quitó en esta misma vuelta
+            return
         try:
-            return self.config_path.stat().st_mtime != self.mtime
-        except FileNotFoundError:
-            return False
+            events = list(dev.read())
+        except BlockingIOError:
+            return
+        except OSError:
+            if dev is self.wiimote:
+                raise
+            # Un accesorio que se quita (p. ej. el Nunchuk) no es el Wiimote desconectándose.
+            self.detach(next(n for n, d in self.extras.items() if d is dev), True)
+            return
+        p = self.profile
+        for ev in events:
+            if ev.type == e.EV_KEY:
+                self.last_input = time.monotonic()
+                self.handle_button(ev.code, ev.value)
+            elif ev.type == e.EV_ABS and dev.name == NUNCHUK and ev.code in (e.ABS_HAT0X, e.ABS_HAT0Y):
+                i = ev.code == e.ABS_HAT0Y
+                value = self.nunchuk_axes[i].convert(ev.value)
+                if abs(value) > ACTIVITY:
+                    self.last_input = time.monotonic()
+                if self.mouse_mode:
+                    self.mouse_stick[i] = value
+                else:
+                    self.handle_stick(p["nunchuk_stick"], i, value)
+            elif ev.type == e.EV_ABS and dev.name == ACCEL:
+                if abs(ev.value - self.motion.setdefault(ev.code, ev.value)) > MOTION_THRESHOLD:
+                    self.motion[ev.code] = ev.value
+                    self.last_input = time.monotonic()
+                # Si el giroscopio usa el mismo stick, manda él.
+                if ev.code in (e.ABS_RX, e.ABS_RY) and p["tilt"] != p["gyro"] and not self.mouse_mode:
+                    i = ev.code == e.ABS_RY
+                    self.handle_stick(p["tilt"], i, self.tilt_axes[i].convert(ev.value))
+            elif ev.type == e.EV_ABS and dev.name == MOTIONPLUS and ev.code in GYRO_AXES:
+                if self.mouse_mode:
+                    if self.bridge.mouse_cfg["move"] == "gyro" and self.gyro_pointer(ev.code, ev.value,
+                                                                                      ev.timestamp()):
+                        self.last_input = time.monotonic()
+                    continue
+                value = self.gyro_axes[ev.code].convert(ev.value, ev.timestamp())
+                if abs(value) > ACTIVITY:
+                    self.last_input = time.monotonic()
+                self.handle_stick(p["gyro"], GYRO_AXES[ev.code][0], value)
+            elif ev.type == e.EV_SYN:
+                self.pad.syn()
 
     def handle_button(self, code, value):
         src = SOURCE_OF.get(code)
         if src is None:
             return
+        b = self.bridge
         self.down.add(src) if value else self.down.discard(src)
         if src in self.suppressed:  # forma parte de la combinación: no llega al juego hasta soltarlo
             if not value:
                 self.suppressed.discard(src)
             return
         if value == 1:
-            for combo, action in ((self.mouse_combo, self.toggle_mouse), (self.combo, self.recenter)):
+            for combo, action in ((b.mouse_combo, lambda: b.toggle_mouse(self)), (b.combo, self.recenter)):
                 if combo and self.down.issuperset(combo):
                     for s in combo:  # soltar lo que ya se había apretado
                         self.pad.press(self.profile["buttons"].get(s, "none"), s, False)
-                        self.mouse.press(self.mouse_cfg["buttons"].get(s, "none"), s, False)
+                        if self.mouse_mode:
+                            b.mouse.press(b.mouse_cfg["buttons"].get(s, "none"), s, False)
                     self.suppressed.update(combo)
                     action()
                     return
         if self.mouse_mode:
-            action = self.mouse_cfg["buttons"].get(src, "none")
-            if self.kb.visible and self.kb.button(src, bool(value), time.monotonic()):
+            action = b.mouse_cfg["buttons"].get(src, "none")
+            if b.kb.visible and b.kb.button(src, bool(value), time.monotonic()):
                 return
             if action == "keyboard":
                 if value == 1:
-                    self.kb.hide() if self.kb.visible else self.show_keyboard()
+                    b.kb.hide() if b.kb.visible else b.show_keyboard()
             elif not (src in ("Up", "Down", "Left", "Right") and self.dpad_moves()):
-                self.mouse.press(action, src, bool(value))
+                b.mouse.press(action, src, bool(value))
         elif code in self.buttons:
             src, target = self.buttons[code]
             self.pad.press(target, src, bool(value))
 
-    def toggle_mouse(self):
-        self.mouse_mode = not self.mouse_mode
+    def mode_changed(self):
+        """Entró o salió del modo mouse."""
         self.pad.reset()
-        self.mouse.reset()
         self.mouse_stick = [0.0, 0.0]
-        self.rescan = True
-        self.kb.hide()
-        if self.mouse_mode and self.mouse_cfg["auto_keyboard"]:
-            self.kb.start_watch()
-        else:
-            self.kb.stop_watch()
-        if self.rumble and self.rumble_on:
+        self.bridge.rescan = True  # p. ej. abrir el Motion Plus si el puntero va con el giroscopio
+        if self.rumble and self.bridge.rumble_on:
             self.rumble.pulse(0.15)
-        self.notify("mouse", "Modo mouse" if self.mouse_mode else "Modo mando de juego")
-        print("Modo mouse" if self.mouse_mode else "Modo mando de juego")
-
-    def show_keyboard(self, auto=False):
-        self.mouse.reset()  # p. ej. el clic con A que entró al campo de texto sigue apretado
-        self.kb.show(auto)
-
-    def focus_changed(self):
-        """Aviso del vigilante de foco: mostrar el teclado al entrar a un campo de texto, quitarlo al salir."""
-        text = self.kb.read_focus()
-        if not self.mouse_mode or text is None:
-            return
-        if text and not self.kb.visible:
-            self.show_keyboard(auto=True)
-        elif not text and self.kb.auto:
-            self.kb.hide()
+        mode = "Modo mouse" if self.mouse_mode else "Modo mando de juego"
+        self.bridge.notify("mouse", f"{self.label}: {mode.lower()}")
+        print(f"[{self.label}] {mode}")
 
     def dpad_moves(self):
         """En modo mouse, la cruceta mueve el puntero si se eligió así o si falta el
         Nunchuk / Motion Plus elegido para moverlo."""
-        move = self.mouse_cfg["move"]
+        move = self.bridge.mouse_cfg["move"]
         return move == "dpad" or {"stick": NUNCHUK, "gyro": MOTIONPLUS}.get(move) not in self.extras
 
     def mouse_velocity(self, now):
         """Velocidad del puntero (px/s) según el stick o la cruceta; el giroscopio lo mueve aparte."""
-        speed = self.mouse_cfg["speed"]
-        if self.kb.visible:  # la cruceta y el stick eligen teclas
+        speed = self.bridge.mouse_cfg["speed"]
+        if self.bridge.kb.visible:  # la cruceta y el stick eligen teclas
             return 0.0, 0.0
         if self.dpad_moves():
             dx = ("Right" in self.down) - ("Left" in self.down)
@@ -820,35 +974,30 @@ class Bridge:
             if dx and dy:
                 v /= math.sqrt(2)
             return dx * v, dy * v
-        if self.mouse_cfg["move"] == "stick":
+        if self.bridge.mouse_cfg["move"] == "stick":
             # al cuadrado: con el stick poco inclinado va lento y preciso
             return tuple(math.copysign(v * v, v) * Mouse.MAX_SPEED * speed for v in self.mouse_stick)
         return 0.0, 0.0
 
     def gyro_pointer(self, code, raw, t):
+        cfg = self.bridge.mouse_cfg
         i, inv = GYRO_AXES[code]
         dps, dt = self.gyro_axes[code].rate(raw, t)
-        if self.kb.visible:
+        if self.bridge.kb.visible:
             return dps
-        if self.mouse_cfg[("invert_gyro_x", "invert_gyro_y")[i]]:
+        if cfg[("invert_gyro_x", "invert_gyro_y")[i]]:
             inv = not inv
-        d = dps * dt * Mouse.PX_PER_DEGREE * self.mouse_cfg["speed"] * (-1 if inv else 1)
-        self.mouse.nudge(d, 0) if i == 0 else self.mouse.nudge(0, d)
+        d = dps * dt * Mouse.PX_PER_DEGREE * cfg["speed"] * (-1 if inv else 1)
+        self.bridge.mouse.nudge(d, 0) if i == 0 else self.bridge.mouse.nudge(0, d)
         return dps
 
     def recenter(self):
         for g in self.gyro_axes.values():
             g.recenter()
-        if self.rumble and self.rumble_on:
+        if self.rumble and self.bridge.rumble_on:
             self.rumble.pulse(0.15)  # aviso de que se recentró
-        self.notify("recenter")
-        print("Giroscopio recentrado")
-
-    def notify(self, event, summary=None, body="", urgency="normal", wait=False):
-        """Aviso en la PC: notificación de escritorio (si está activada para ese evento) y sonido."""
-        if self.notifications.get(event):
-            notify_desktop(summary or SOUND_EVENTS[event], body, urgency, event != "battery", wait)
-        play_on_pc(self.sounds.get(event), wait)
+        self.bridge.notify("recenter", f"{self.label}: giroscopio recentrado")
+        print(f"[{self.label}] Giroscopio recentrado")
 
     def handle_stick(self, mode, axis_id, value):
         """axis_id: 0 = x, 1 = y; value en -1..1 con y positivo = abajo."""
@@ -859,220 +1008,306 @@ class Bridge:
             self.pad.press(neg, "stick", value < -0.5)
             self.pad.press(pos, "stick", value > 0.5)
 
-    def run(self):
-        wiimote = find(WIIMOTE)
-        if not wiimote:
-            return False
-        devices = {wiimote.fd: wiimote}
-        extras = self.extras
-        extras.clear()
+    def tick(self, now):
+        """Trabajo por tiempo (vibración, apagado, batería...); devuelve en cuántos segundos volver."""
+        b = self.bridge
+        timeout = math.inf
+        if self.nunchuk_gone is not None:
+            if now - self.nunchuk_gone >= UNPLUG_GRACE:
+                self.nunchuk_gone = None
+                print(f"[{self.label}] Nunchuk desconectado")
+                b.notify("nunchuk", f"{self.label}: Nunchuk desconectado")
+            else:
+                timeout = self.nunchuk_gone + UNPLUG_GRACE - now
+        if self.rumble:
+            level, ends = self.pad.rumble_level(now)
+            timeout = min(timeout, ends, self.rumble.update(level if b.rumble_on else 0.0, now))
+        if any(self.pad.held.values()) or (self.mouse_mode and b.mouse.busy()):  # botón mantenido
+            self.last_input = now
+        if b.idle_timeout and now - self.last_input > b.idle_timeout:
+            print(f"[{self.label}] {b.idle_timeout // 60} min sin usar el Wiimote: apagándolo para ahorrar "
+                  "batería (presiona 1+2 para volver a conectarlo)")
+            self.pad.reset()
+            if self.mouse_mode:
+                b.mouse.reset()
+            if power_off(self.wiimote):
+                self.idle_off = True
+            else:
+                print("No se pudo desconectar el Wiimote (¿falta bluetoothctl?)")
+            self.last_input = now
+        if self.battery and now - self.last_battery > BATTERY_CHECK:
+            self.last_battery = now
+            threading.Thread(target=lambda: self.battery_reads.append(battery_level(self.battery)),
+                             daemon=True).start()
+        while self.battery_reads:
+            level = self.battery_reads.pop(0)
+            if level is not None and level != self.battery_level:
+                self.battery_level = level
+                b.state_dirty = True
+            low = [t for t in BATTERY_LOW if level is not None and level <= t and t not in self.battery_warned]
+            if low:
+                self.battery_warned.update(low)
+                print(f"[{self.label}] Batería baja del Wiimote: {level} %")
+                b.notify("battery", f"{self.label}: batería baja", f"Queda {level} %. Cambia las pilas pronto.",
+                         urgency="critical" if min(low) == min(BATTERY_LOW) else "normal")
+        return timeout
 
-        def wanted():
-            # El acelerómetro y el Motion Plus solo se abren si el perfil los usa:
-            # abiertos, el Wiimote envía datos sin parar y gasta más batería.
-            p = self.profile
-            gyro = self.mouse_cfg["move"] == "gyro" if self.mouse_mode else p["gyro"] != "none"
-            return {NUNCHUK} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
-
-        attach_after = 0.0  # tras quitar un accesorio, esperar a que su nodo desaparezca
-        nunchuk_gone = None  # cuándo se quitó el Nunchuk, si su aviso está pendiente
-
-        def attach_extras():
-            if time.monotonic() < attach_after:
-                return
-            for name in wanted() - extras.keys():
-                if d := find(name):
-                    try:
-                        d.grab()
-                    except OSError:  # se está quitando justo ahora
-                        d.close()
-                        continue
-                    devices[d.fd] = d
-                    extras[name] = d
-                    if name == NUNCHUK:
-                        self.nunchuk_center = (d.absinfo(e.ABS_HAT0X).value, d.absinfo(e.ABS_HAT0Y).value)
-                        self.make_axes()
-                        print("Nunchuk conectado")
-                        if not first_attach:  # al encender ya suena el aviso del Wiimote
-                            self.notify("nunchuk", "Nunchuk conectado")
-
-        def detach(name, gone):
-            nonlocal attach_after, nunchuk_gone
-            d = extras.pop(name)
-            devices.pop(d.fd, None)
+    def close(self, gone, wait=False):
+        self.pad.reset()
+        if self.rumble and self.rumble.on and not gone:
+            try:
+                self.wiimote.write(e.EV_FF, self.rumble.id, 0)
+            except OSError:
+                pass
+        self.rumble = None
+        for d in self.devices.values():
+            try:
+                d.ungrab()
+            except OSError:
+                pass
             d.close()
-            self.pad.reset()
-            if name == NUNCHUK:
-                self.mouse_stick = [0.0, 0.0]
-            if gone:
-                attach_after = time.monotonic() + 2
-                if name == NUNCHUK:
-                    nunchuk_gone = time.monotonic()
+        self.devices.clear()
+        self.extras.clear()
+        if gone:
+            print(f"[{self.label}] Wiimote desconectado")
+            idle = f"Se apagó tras {self.bridge.idle_timeout // 60} min sin uso. " if self.idle_off else ""
+            self.bridge.notify("disconnect", f"{self.label} desconectado",
+                               idle + "Presiona 1+2 para volver a conectarlo.", wait=wait)
 
-        def detach_extras():
-            present = set(evdev.list_devices())
-            for name, d in list(extras.items()):
-                if d.path not in present or name not in wanted():
-                    detach(name, d.path not in present)
 
-        wiimote.grab()
-        self.down.clear()
-        self.suppressed.clear()
-        self.mouse_mode = False  # al encender, siempre en modo mando de juego
-        self.kb.hide()
-        self.kb.stop_watch()
+class Bridge:
+    """Reparte los Wiimotes conectados entre los mandos virtuales (uno por jugador) y
+    comparte entre ellos el mouse virtual y el teclado en pantalla."""
+
+    def __init__(self, pad, mouse, config_path):
+        self.mouse, self.config_path = mouse, config_path
+        # Los mandos virtuales no se cierran al irse su Wiimote: así el juego no pierde el
+        # mando y, al volver, el Wiimote recupera su mismo número.
+        self.pads = {1: pad}
+        self.players = {}  # grupo -> Player
+        self.last_number = {}  # id del Wiimote -> último número de jugador que tuvo
+        self.mouse_owner = None  # el jugador que maneja el puntero, si alguno está en modo mouse
+        self.mtime = None
+        self.rescan = False  # buscar accesorios ya (p. ej. abrir el Motion Plus al entrar al modo mouse)
+        self.state_dirty = True
+        self.full_warned = False
+        self.kb = wii_keyboard.Keyboard(mouse.tap)
+        self.reload()
+
+    def reload(self):
+        cfg = self.cfg = load_config(self.config_path)
+        self.mtime = self.config_path.stat().st_mtime
+        self.mouse.reset()
+        self.idle_timeout = cfg["idle_timeout_min"] * 60
+        self.combo = RECENTER_COMBOS.get(cfg["recenter_combo"], RECENTER_COMBOS["none"])[0]
+        self.mouse_combo = MOUSE_COMBOS.get(cfg["mouse_combo"], MOUSE_COMBOS["none"])[0]
+        self.mouse_players = cfg["mouse_players"]
+        self.mouse_cfg = cfg["mouse"]
+        self.rumble_on = cfg["rumble"]
+        self.sounds = cfg["sounds"]
+        self.notifications = cfg["notifications"]
+        self.devices = cfg["devices"]
+        owner = self.mouse_owner
+        # Sin combinación no habría forma de salir; y con "solo el jugador 1", nadie más se queda el puntero.
+        if owner and (not self.mouse_combo or not self.may_use_mouse(owner)):
+            self.toggle_mouse(owner)
+        self.watch_focus()
+        for p in self.players.values():
+            p.load_profile()
+        if not self.players:
+            print(f"Perfil por defecto: {cfg['active']}")
+        self.state_dirty = True
+
+    def config_changed(self):
         try:
-            self.rumble = Rumble(wiimote)
-        except OSError as err:
-            print(f"El Wiimote no acepta vibración ({err})")
-        first_attach = True
-        attach_extras()
-        first_attach = False
-        print(f"Wiimote conectado -> mando virtual '{self.pad.name}'")
-        if self.rumble and self.rumble_on:
-            self.rumble.pulse(0.3)
-        battery = battery_path(wiimote.path)
-        level = battery_level(battery)
-        self.notify("connect", body=f"Batería: {level} %" if level is not None else "")
-        battery_warned = set()  # niveles de BATTERY_LOW ya avisados
-        battery_reads = [level]  # la lectura se hace en otro hilo: puede tardar y frenaría los botones
-        idle_off = False
-        last_scan = last_input = last_battery = time.monotonic()
-        motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
-        timeout = 1.0
-        try:
-            while True:
-                watch_fd = self.kb.watch_fd()
-                r, _, _ = select.select([*devices, self.pad.ui.fd, *([watch_fd] if watch_fd else [])], [], [], timeout)
-                p = self.profile
-                for fd in r:
-                    if fd == self.pad.ui.fd:
-                        self.pad.handle_ff()
-                        continue
-                    if fd == watch_fd:
-                        self.focus_changed()
-                        continue
-                    dev = devices.get(fd)
-                    if dev is None:  # se quitó en esta misma vuelta
-                        continue
-                    try:
-                        events = list(dev.read())
-                    except BlockingIOError:
-                        continue
-                    except OSError:
-                        if dev is wiimote:
-                            raise
-                        # Un accesorio que se quita (p. ej. el Nunchuk) no es el Wiimote desconectándose.
-                        detach(next(n for n, d in extras.items() if d is dev), True)
-                        continue
-                    for ev in events:
-                        if ev.type == e.EV_KEY:
-                            last_input = time.monotonic()
-                            self.handle_button(ev.code, ev.value)
-                        elif ev.type == e.EV_ABS and dev.name == NUNCHUK and ev.code in (e.ABS_HAT0X, e.ABS_HAT0Y):
-                            i = ev.code == e.ABS_HAT0Y
-                            value = self.nunchuk_axes[i].convert(ev.value)
-                            if abs(value) > ACTIVITY:
-                                last_input = time.monotonic()
-                            if self.mouse_mode:
-                                self.mouse_stick[i] = value
-                            else:
-                                self.handle_stick(p["nunchuk_stick"], i, value)
-                        elif ev.type == e.EV_ABS and dev.name == ACCEL:
-                            if abs(ev.value - motion.setdefault(ev.code, ev.value)) > MOTION_THRESHOLD:
-                                motion[ev.code] = ev.value
-                                last_input = time.monotonic()
-                            # Si el giroscopio usa el mismo stick, manda él.
-                            if ev.code in (e.ABS_RX, e.ABS_RY) and p["tilt"] != p["gyro"] and not self.mouse_mode:
-                                i = ev.code == e.ABS_RY
-                                self.handle_stick(p["tilt"], i, self.tilt_axes[i].convert(ev.value))
-                        elif ev.type == e.EV_ABS and dev.name == MOTIONPLUS and ev.code in GYRO_AXES:
-                            if self.mouse_mode:
-                                if self.mouse_cfg["move"] == "gyro" and self.gyro_pointer(ev.code, ev.value, ev.timestamp()):
-                                    last_input = time.monotonic()
-                                continue
-                            value = self.gyro_axes[ev.code].convert(ev.value, ev.timestamp())
-                            if abs(value) > ACTIVITY:
-                                last_input = time.monotonic()
-                            self.handle_stick(p["gyro"], GYRO_AXES[ev.code][0], value)
-                        elif ev.type == e.EV_SYN:
-                            self.pad.syn()
-                now = time.monotonic()
-                timeout = 1.0
-                if nunchuk_gone is not None:
-                    if now - nunchuk_gone >= UNPLUG_GRACE:
-                        nunchuk_gone = None
-                        print("Nunchuk desconectado")
-                        self.notify("nunchuk", "Nunchuk desconectado")
-                    else:
-                        timeout = min(timeout, nunchuk_gone + UNPLUG_GRACE - now)
-                if self.rumble:
-                    level, ends = self.pad.rumble_level(now)
-                    timeout = min(timeout, ends, self.rumble.update(level if self.rumble_on else 0.0, now))
-                if self.mouse_mode:
-                    self.mouse.velocity = self.mouse_velocity(now)
-                    timeout = min(timeout, self.mouse.tick(now))
-                if self.kb.visible:
-                    self.kb.stick(*self.mouse_stick, now)
-                    timeout = min(timeout, self.kb.tick(now))
-                if any(self.pad.held.values()) or self.mouse.busy():  # botón mantenido (p. ej. acelerar)
-                    last_input = now
-                if self.idle_timeout and now - last_input > self.idle_timeout:
-                    print(f"{self.idle_timeout // 60} min sin usar el Wiimote: apagándolo para ahorrar batería "
-                          "(presiona 1+2 para volver a conectarlo)")
-                    self.pad.reset()
-                    self.mouse.reset()
-                    if power_off(wiimote):
-                        idle_off = True
-                    else:
-                        print("No se pudo desconectar el Wiimote (¿falta bluetoothctl?)")
-                    last_input = now
-                if battery and now - last_battery > BATTERY_CHECK:
-                    last_battery = now
-                    threading.Thread(target=lambda: battery_reads.append(battery_level(battery)),
-                                     daemon=True).start()
-                while battery_reads:
-                    level = battery_reads.pop(0)
-                    low = [t for t in BATTERY_LOW if level is not None and level <= t and t not in battery_warned]
-                    if low:
-                        battery_warned.update(low)
-                        print(f"Batería baja del Wiimote: {level} %")
-                        self.notify("battery", body=f"Queda {level} %. Cambia las pilas pronto.",
-                                    urgency="critical" if min(low) == min(BATTERY_LOW) else "normal")
-                if now - last_scan > 1 or self.rescan:
-                    last_scan, self.rescan = now, False
-                    if self.config_changed():
-                        self.reload()
-                    detach_extras()
-                    attach_extras()
-        except OSError:
-            print("Wiimote desconectado")
-            self.pad.reset()
+            return self.config_path.stat().st_mtime != self.mtime
+        except FileNotFoundError:
+            return False
+
+    def notify(self, event, summary=None, body="", urgency="normal", wait=False):
+        """Aviso en la PC: notificación de escritorio (si está activada para ese evento) y sonido."""
+        if self.notifications.get(event):
+            notify_desktop(summary or SOUND_EVENTS[event], body, urgency, event != "battery", wait)
+        play_on_pc(self.sounds.get(event), wait)
+
+    # --- jugadores --------------------------------------------------------------
+    def pad_for(self, number):
+        if number not in self.pads:
+            try:
+                self.pads[number] = Pad(number)
+            except (OSError, evdev.UInputError) as err:
+                print(f"No se pudo crear el mando virtual {number} ({err})")
+                return None
+        return self.pads[number]
+
+    def free_number(self, wiimote_id):
+        used = {p.number for p in self.players.values()}
+        last = self.last_number.get(wiimote_id)
+        if last and last not in used:
+            return last
+        return next((n for n in range(1, MAX_PLAYERS + 1) if n not in used), None)
+
+    def scan(self):
+        """Altas y bajas de Wiimotes y de sus accesorios (una vez por segundo)."""
+        present = wiimotes()
+        for group, p in list(self.players.items()):
+            if group not in present:
+                self.remove(p, gone=True)
+        for p in self.players.values():
+            p.scan()
+        for group, path in present.items():
+            if group in self.players:
+                continue
+            number = self.free_number(device_id(path))
+            if number is None:
+                if not self.full_warned:
+                    self.full_warned = True
+                    print(f"Ya hay {MAX_PLAYERS} Wiimotes conectados; los demás se ignoran")
+                continue
+            pad = self.pad_for(number)
+            wiimote = find(WIIMOTE, group) if pad else None
+            if wiimote is None:
+                continue
+            p = Player(self, group, wiimote, number, pad)
+            try:
+                p.start()
+            except OSError as err:  # se fue mientras arrancaba
+                print(f"No se pudo usar el Wiimote ({err})")
+                p.close(gone=False)
+                continue
+            self.players[group] = p
+            self.last_number[p.id] = number
+            self.state_dirty = True
+
+    def remove(self, player, gone):
+        del self.players[player.group]
+        if self.mouse_owner is player:
+            self.mouse_owner = None
             self.mouse.reset()
             self.kb.hide()
+            self.watch_focus()
+        player.close(gone, wait=not self.players)  # si es el último, con --once el puente sale ya
+        self.full_warned = False
+        self.state_dirty = True
+
+    # --- modo mouse -------------------------------------------------------------
+    def may_use_mouse(self, player):
+        return self.mouse_players != "p1" or player.number == 1
+
+    def toggle_mouse(self, player):
+        """El jugador entra o sale del modo mouse. Si otro lo tenía, vuelve a ser mando."""
+        if not self.may_use_mouse(player):
+            print(f"[{player.label}] Solo el jugador 1 puede usar el modo mouse")
+            return
+        old = self.mouse_owner
+        self.mouse_owner = None if old is player else player
+        self.mouse.reset()
+        self.kb.hide()
+        self.watch_focus()
+        if old and old is not player:
+            old.mode_changed()
+        player.mode_changed()
+        self.state_dirty = True
+
+    def watch_focus(self):
+        if self.mouse_owner and self.mouse_cfg["auto_keyboard"]:
+            self.kb.start_watch()
+        else:
             self.kb.stop_watch()
-            idle = f"Se apagó tras {self.idle_timeout // 60} min sin uso. " if idle_off else ""
-            self.notify("disconnect", body=idle + "Presiona 1+2 para volver a conectarlo.", wait=True)
-            return True
-        finally:
-            self.rumble = None
-            extras.clear()
-            for d in devices.values():
-                try:
-                    d.ungrab()
-                except OSError:
-                    pass
-                d.close()
+
+    def show_keyboard(self, auto=False):
+        self.mouse.reset()  # p. ej. el clic con A que entró al campo de texto sigue apretado
+        self.kb.show(auto)
+
+    def focus_changed(self):
+        """Aviso del vigilante de foco: mostrar el teclado al entrar a un campo de texto, quitarlo al salir."""
+        text = self.kb.read_focus()
+        if not self.mouse_owner or text is None:
+            return
+        if text and not self.kb.visible:
+            self.show_keyboard(auto=True)
+        elif not text and self.kb.auto:
+            self.kb.hide()
+
+    # --- bucle ------------------------------------------------------------------
+    def write_state(self):
+        players = [{"id": p.id, "number": p.number, "name": p.label, "profile": p.profile_name,
+                    "pad": p.pad.phys, "mouse": p.mouse_mode, "battery": p.battery_level}
+                   for p in sorted(self.players.values(), key=lambda p: p.number)]
+        try:
+            STATE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = STATE.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"pid": os.getpid(), "players": players}, ensure_ascii=False))
+            tmp.replace(STATE)
+        except OSError:
+            pass
+        self.state_dirty = False
+
+    def run(self, once=False):
+        """Atiende a los Wiimotes. Con once, vuelve cuando ya no queda ninguno."""
+        deadline = time.monotonic() + ONCE_WAIT
+        seen = False
+        last_scan = -math.inf
+        timeout = 0.0
+        while True:
+            now = time.monotonic()
+            if now - last_scan >= 1 or self.rescan:
+                last_scan, self.rescan = now, False
+                if self.config_changed():
+                    self.reload()
+                self.scan()
+                seen = seen or bool(self.players)
+                if once and not self.players and (seen or now > deadline):
+                    if not seen:
+                        print("No apareció el Wiimote; saliendo")
+                    return
+            if self.state_dirty:
+                self.write_state()
+            watch_fd = self.kb.watch_fd()
+            fds = {fd: p for p in self.players.values() for fd in p.fds()}
+            pads = {pad.ui.fd: pad for pad in self.pads.values()}
+            r, _, _ = select.select([*fds, *pads, *([watch_fd] if watch_fd else [])], [], [], timeout)
+            for fd in r:
+                if fd in pads:  # los juegos suben y lanzan vibraciones aunque el mando no tenga Wiimote
+                    pads[fd].handle_ff()
+                elif fd == watch_fd:
+                    self.focus_changed()
+                elif self.players.get(fds[fd].group) is fds[fd]:
+                    try:
+                        fds[fd].handle(fd)
+                    except OSError:
+                        self.remove(fds[fd], gone=True)
+            now = time.monotonic()
+            timeout = last_scan + 1 - now
+            for p in list(self.players.values()):
+                timeout = min(timeout, p.tick(now))
+            if owner := self.mouse_owner:
+                self.mouse.velocity = owner.mouse_velocity(now)
+                timeout = min(timeout, self.mouse.tick(now))
+                if self.kb.visible:
+                    self.kb.stick(*owner.mouse_stick, now)
+                    timeout = min(timeout, self.kb.tick(now))
+            timeout = max(0.0, timeout)
+
+    def close(self):
+        for p in list(self.players.values()):
+            p.close(gone=False)
+        self.players.clear()
+        self.kb.close()
+        for pad in self.pads.values():
+            pad.close()
+        self.mouse.close()
+        STATE.unlink(missing_ok=True)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", type=Path, default=CONFIG, help=f"archivo de configuración (def. {CONFIG})")
-    p.add_argument("--profile", help="activa este perfil al arrancar")
+    p.add_argument("--profile", help="perfil por defecto de los Wiimotes que no tienen uno elegido")
     p.add_argument("--idle", type=int, metavar="MIN",
                    help=f"apaga el Wiimote tras MIN minutos sin uso; 0 = nunca (def. {IDLE_TIMEOUT_MIN})")
     p.add_argument("--once", action="store_true",
-                   help="sale cuando el Wiimote se desconecta (lo usa el servicio que arranca al conectarlo)")
+                   help="sale cuando no queda ningún Wiimote (lo usa el servicio que arranca al conectarlo)")
     args = p.parse_args()
 
     if args.profile or args.idle is not None:
@@ -1093,25 +1328,12 @@ def main():
                          "Ejecuta install.sh y reinicia sesión (necesita acceso a /dev/uinput).")
     bridge = Bridge(pad, mouse, args.config)
     print("Esperando el Wiimote (presiona 1+2 o el botón sync)... Ctrl+C para salir")
-    deadline = time.monotonic() + ONCE_WAIT
     try:
-        while True:
-            if bridge.run():
-                if args.once:
-                    break
-            elif args.once and time.monotonic() > deadline:
-                print("No apareció el Wiimote; saliendo")
-                break
-            else:
-                time.sleep(1)
-                if bridge.config_changed():
-                    bridge.reload()
+        bridge.run(args.once)
     except KeyboardInterrupt:
         pass
     finally:
-        bridge.kb.close()
-        pad.close()
-        mouse.close()
+        bridge.close()
 
 
 if __name__ == "__main__":

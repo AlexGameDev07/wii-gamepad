@@ -41,22 +41,24 @@ def check(name, ok, detail=""):
 class FakeWiimote:
     """Dispositivos falsos. El Wiimote atiende las vibraciones como el driver real."""
 
-    def __init__(self):
+    def __init__(self, n=1):
+        # Sin un dispositivo HID padre, el puente agrupa los nodos de cada Wiimote falso por su phys.
+        self.id = f"fake-wiimote-{n}"
         keys = [code for code, _ in wg.SOURCES.values() if code not in (e.BTN_C, e.BTN_Z)]
-        self.wiimote = UInput({e.EV_KEY: keys, e.EV_FF: [e.FF_RUMBLE]}, name=wg.WIIMOTE, max_effects=4)
+        self.wiimote = UInput({e.EV_KEY: keys, e.EV_FF: [e.FF_RUMBLE]}, name=wg.WIIMOTE, phys=self.id,
+                              max_effects=4)
         self.nunchuk = self.make_nunchuk()
         gyro = AbsInfo(0, -16000, 16000, 4, 8, 0)
         self.motionplus = UInput({e.EV_ABS: [(e.ABS_RX, gyro), (e.ABS_RY, gyro), (e.ABS_RZ, gyro)]},
-                                 name=wg.MOTIONPLUS)
+                                 name=wg.MOTIONPLUS, phys=self.id)
         self.rumble = []  # valores EV_FF que llegan al Wiimote (1 = vibrar, 0 = parar)
         self.running = True
         threading.Thread(target=self._serve_ff, daemon=True).start()
 
-    @staticmethod
-    def make_nunchuk():
+    def make_nunchuk(self):
         return UInput({e.EV_KEY: [e.BTN_C, e.BTN_Z],
                        e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(0, -120, 120, 2, 4, 0)),
-                                  (e.ABS_HAT0Y, AbsInfo(0, -120, 120, 2, 4, 0))]}, name=wg.NUNCHUK)
+                                  (e.ABS_HAT0Y, AbsInfo(0, -120, 120, 2, 4, 0))]}, name=wg.NUNCHUK, phys=self.id)
 
     def _serve_ff(self):
         ui = self.wiimote
@@ -202,32 +204,51 @@ def test_mouse(fake, mouse):
           is not None)
 
 
-def test_bridge(tmp):
+def quiet_config(tmp, **extra):
     cfg_path = tmp / "config.json"
     cfg = wg.default_config()
     cfg["sounds"] = {k: "" for k in cfg["sounds"]}  # en silencio
     cfg["notifications"] = {k: False for k in cfg["notifications"]}
     cfg["mouse"]["auto_keyboard"] = False  # que no aparezca el teclado en el escritorio
     cfg["idle_timeout_min"] = 0
-    cfg_path.write_text(json.dumps(cfg))
+    cfg_path.write_text(json.dumps(cfg | extra))
+    return cfg_path
 
-    fake = FakeWiimote()
-    bridge = subprocess.Popen([sys.executable, str(ROOT / "wii_gamepad.py"), "--config", str(cfg_path), "--once"],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                              env=os.environ | {"PYTHONUNBUFFERED": "1", "XDG_CONFIG_HOME": str(tmp)})
-    out = []
 
-    def read_output():
-        for line in bridge.stdout:
-            out.append(line)
+class BridgeProcess:
+    """El puente real en otro proceso, con su salida a mano."""
 
-    def wait_output(text, timeout=10):
+    def __init__(self, tmp, cfg_path):
+        self.proc = subprocess.Popen([sys.executable, str(ROOT / "wii_gamepad.py"), "--config", str(cfg_path),
+                                      "--once"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     env=os.environ | {"PYTHONUNBUFFERED": "1", "XDG_CONFIG_HOME": str(tmp)})
+        self.out = []
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        for line in self.proc.stdout:
+            self.out.append(line)
+
+    def count(self, text):
+        return sum(text in l for l in self.out)
+
+    def wait_output(self, text, timeout=10, times=1):
         end = time.monotonic() + timeout
-        while time.monotonic() < end and not any(text in l for l in out):
+        while time.monotonic() < end and self.count(text) < times:
             time.sleep(0.05)
-        return any(text in l for l in out)
+        return self.count(text) >= times
 
-    threading.Thread(target=read_output, daemon=True).start()
+    def stop(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            self.proc.wait(timeout=5)
+
+
+def test_bridge(tmp):
+    cfg_path = quiet_config(tmp)
+    fake = FakeWiimote()
+    b = BridgeProcess(tmp, cfg_path)
+    bridge, out, wait_output = b.proc, b.out, b.wait_output
     pad = mouse = None
     try:
         print("Mando Xbox virtual")
@@ -344,9 +365,86 @@ def test_bridge(tmp):
                     d.close()
                 except OSError:
                     pass
-        if bridge.poll() is None:
-            bridge.terminate()
-            bridge.wait(timeout=5)
+        b.stop()
+
+
+def open_pad(number):
+    path = wg.find_phys(f"wii-gamepad/pad{number}")
+    if not path:
+        return None
+    pad = evdev.InputDevice(path)
+    pad.grab()
+    return pad
+
+
+def test_players(tmp):
+    print("Varios Wiimotes")
+    cfg_path = quiet_config(tmp, devices={"fake-wiimote-2": {"profile": "Geometry Dash"}})
+    fakes = [FakeWiimote(1), FakeWiimote(2)]
+    b = BridgeProcess(tmp, cfg_path)
+    pads = []
+    try:
+        check("detecta los dos Wiimotes", b.wait_output("Wiimote conectado", times=2), "".join(b.out))
+        time.sleep(0.5)
+        state = json.loads(wg.STATE.read_text())
+        numbers = {p["id"]: p["number"] for p in state["players"]}
+        check("cada uno es un jugador distinto", numbers == {"fake-wiimote-1": 1, "fake-wiimote-2": 2}, str(numbers))
+        pads = [open_pad(1), open_pad(2)]
+        check("un mando virtual por jugador", all(pads))
+        if not all(pads):
+            return
+        for pad in pads:
+            drain(pad)
+        fakes[0].press("A")
+        check("A del jugador 1 llega solo a su mando",
+              wait_event(pads[0], key(e.BTN_A)) is not None and wait_event(pads[1], key(e.BTN_A), 0.3) is None)
+        fakes[1].press("B")
+        check("cada Wiimote usa su perfil (jugador 2 en Geometry Dash: B -> A)",
+              wait_event(pads[1], key(e.BTN_A)) is not None and wait_event(pads[0], key(e.BTN_A), 0.3) is None)
+
+        fakes[0].combo("+", "-")
+        fakes[1].combo("+", "-")
+        check("con «cualquiera», el modo mouse pasa al último que lo pide",
+              b.wait_output("[Jugador 2] Modo mouse", 2) and b.wait_output("[Jugador 1] Modo mando de juego", 2))
+        fakes[1].combo("+", "-")
+        b.wait_output("[Jugador 2] Modo mando de juego", 2)
+        cfg = json.loads(cfg_path.read_text())
+        cfg["mouse_players"] = "p1"
+        cfg_path.write_text(json.dumps(cfg))
+        time.sleep(1.5)
+        fakes[1].combo("+", "-")
+        check("con «solo el jugador 1», el jugador 2 no puede", b.wait_output("Solo el jugador 1", 2)
+              and b.count("[Jugador 2] Modo mouse") == 1)
+
+        fakes[0].close()
+        check("apagar el jugador 1 no afecta al 2",
+              b.wait_output("[Jugador 1] Wiimote desconectado", 5) and b.proc.poll() is None)
+        drain(pads[1])
+        fakes[1].press("B")
+        check("el jugador 2 sigue funcionando", wait_event(pads[1], key(e.BTN_A)) is not None)
+        drain(pads[0])
+        fakes[0] = FakeWiimote(1)
+        check("al volver, el Wiimote recupera su número", b.wait_output("[Jugador 1] Wiimote conectado", 5, times=2))
+        time.sleep(0.3)
+        fakes[0].press("A")
+        check("y su mismo mando virtual (el juego no lo pierde)", wait_event(pads[0], key(e.BTN_A)) is not None)
+        for f in fakes:
+            f.close()
+        try:
+            b.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        check("sin Wiimotes, el puente sale (--once)", b.proc.returncode == 0, "".join(b.out[-5:]))
+    finally:
+        for f in fakes:
+            f.close()
+        for pad in pads:
+            if pad:
+                try:
+                    pad.close()
+                except OSError:
+                    pass
+        b.stop()
 
 
 def main():
@@ -357,6 +455,7 @@ def main():
         with tempfile.TemporaryDirectory() as tmp:
             test_config(Path(tmp))
             test_bridge(Path(tmp))
+            test_players(Path(tmp))
     finally:
         if blocked:
             unblock_service()
