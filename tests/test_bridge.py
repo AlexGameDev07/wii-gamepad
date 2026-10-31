@@ -203,6 +203,28 @@ def test_mouse(fake, mouse):
     fake.press("Down")
     check("cruceta ↓ -> rueda", wait_event(mouse, lambda ev: ev.type == e.EV_REL and ev.code == e.REL_WHEEL)
           is not None)
+    def nunchuk_c(value):
+        fake.nunchuk.write(e.EV_KEY, e.BTN_C, value)
+        fake.nunchuk.syn()
+        time.sleep(0.05)
+
+    def keys():
+        """Las teclas que salieron, en orden."""
+        time.sleep(0.2)
+        return [(ev.code, ev.value) for ev in mouse.read() if ev.type == e.EV_KEY] \
+            if select.select([mouse.fd], [], [], 0)[0] else []
+
+    keys()
+    nunchuk_c(1)
+    nunchuk_c(0)
+    check("C solo -> Enter al soltarlo", keys() == [(e.KEY_ENTER, 1), (e.KEY_ENTER, 0)])
+    nunchuk_c(1)
+    fake.press("Right")
+    fake.press("Right")
+    tab = [(e.KEY_TAB, 1), (e.KEY_TAB, 0)]
+    check("mantener C y repetir la cruceta -> Alt y dos Tab", keys() == [(e.KEY_LEFTALT, 1)] + tab * 2)
+    nunchuk_c(0)
+    check("soltar C suelta Alt", keys() == [(e.KEY_LEFTALT, 0)])
 
 
 def quiet_config(tmp, **extra):

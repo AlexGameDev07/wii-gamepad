@@ -221,6 +221,17 @@ class Puente(unittest.TestCase):
         self.boton("B", 0), self.boton("Z", 0)
         self.assertEqual(self.log, [(e.KEY_LEFTCTRL, 1), (e.KEY_W, 1), (e.KEY_W, 0), (e.KEY_LEFTCTRL, 0)])
 
+    def test_quitar_el_nunchuk_no_deja_alt_pegado(self):
+        nunchuk = type("D", (), {"fd": 7, "path": "/dev/falso", "close": lambda _s: None})()
+        self.player.extras = {wg.NUNCHUK: nunchuk}
+        self.player.devices, self.player.stale = {7: nunchuk}, set()
+        self.player.pad.reset = lambda: None
+        self.boton("C", 1), self.boton("Right", 1), self.boton("Right", 0)
+        self.player.detach(wg.NUNCHUK, True)
+        self.assertEqual(self.log[-1], (e.KEY_LEFTALT, 0))
+        self.assertEqual(self.player.down, set())
+        self.assertFalse(self.bridge.mouse.busy())
+
     def test_a_es_clic_al_instante_aunque_este_en_una_combinacion(self):
         self.boton("A", 1)
         self.assertEqual(self.log, [(e.BTN_LEFT, 1)])

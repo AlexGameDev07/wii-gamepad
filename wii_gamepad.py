@@ -1079,6 +1079,10 @@ class Player:
         self.pad.reset()
         if name == NUNCHUK:
             self.mouse_stick = [0.0, 0.0]
+            self.down.difference_update(NUNCHUK_SOURCES)  # ya no llegará el evento de soltarlos
+            if self.mouse_mode:
+                self.bridge.mouse.reset()
+                self.chords.reset()
         if gone:
             self.stale.add(d.path)
             if name == NUNCHUK:
