@@ -156,6 +156,26 @@ y vuelve a ser mando de juego (vibra y suena al cambiar). Siempre arranca en mod
 | Cruceta ← → | Atrás / Adelante (Alt+← / Alt+→) |
 | 1 / 2 / Home | Esc / Teclado en pantalla / Super |
 
+### Combinaciones
+
+Con el Nunchuk puesto, mantén C o Z y pulsa otro botón:
+
+| Combinación | Acción |
+|---|---|
+| C + Cruceta → / ← | Cambiar de ventana (Alt+Tab); mantén C y repite para avanzar |
+| Z + Cruceta → / ← | Cambiar de pestaña (Ctrl+Tab) |
+| C + B | Cerrar la ventana (Alt+F4) |
+| Z + B | Cerrar la pestaña (Ctrl+W) |
+| C + Z + B | Cerrar la ventana del navegador (Ctrl+Shift+W) |
+| Z + Cruceta ↑ / ↓ | Pestaña nueva / reabrir la cerrada |
+| C + Cruceta ↑ / ↓ | Subir / bajar el volumen |
+| Z + A / C + A | Copiar / pegar |
+| C + Z | Reproducir / pausa |
+
+Puedes crear las tuyas, de 2 a 4 botones, en **Preferencias → Modo mouse → Combinaciones**. Si C o Z
+están en una combinación, su función normal actúa al soltarlos. Dos botones del Wiimote sin C ni Z
+se aprietan casi a la vez, y esos botones tardan 0,15 s más en actuar solos.
+
 Todo se cambia en **Preferencias → Modo mouse**: la combinación, cada botón, la velocidad y con qué se
 mueve el puntero (stick, giroscopio o cruceta; el giroscopio tiene casillas para invertir
 cada eje). Sin Nunchuk, la cruceta mueve el puntero.
@@ -228,6 +248,22 @@ sonidos, cópialos a `~/.config/wii-gamepad/sonidos/`.
 
 La batería de cada Wiimote se ve en la barra lateral y en su página. Las notificaciones usan
 `notify-send` (paquete `libnotify`), que instala `install.sh`.
+
+## Bocina del Wiimote (experimental)
+
+Los avisos se oyen en la PC: la app todavía no usa la bocina del Wiimote, porque el driver de
+Linux no la maneja. Para comprobar si la tuya funciona, apaga el puente y usa esta herramienta,
+que le manda audio directamente al Wiimote:
+
+```bash
+systemctl --user stop wii-gamepad
+sudo python3 wii_speaker_test.py --listar
+sudo python3 wii_speaker_test.py
+sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
+```
+
+Prueba PCM y ADPCM y te pregunta qué oíste. El sonido sale áspero y, en nuestras pruebas, de dos
+Wiimotes solo sonó uno, así que un mando en silencio aquí no prueba que su bocina esté dañada.
 
 ## Ahorro de batería
 

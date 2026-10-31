@@ -126,6 +126,12 @@ anyone can or only player 1.
 Press **+ and − together** and the Wiimote drives the desktop mouse; press them again to go back
 to gamepad mode (it rumbles and plays a sound). Nunchuk stick (or gyro, or D-pad) moves the
 pointer, A/Z click, the D-pad scrolls and goes back/forward, and 2 opens the on-screen keyboard.
+Button combinations: with the Nunchuk attached, hold C or Z and press another button. C + D-pad → / ←
+switches windows (keep holding C and repeat), Z + D-pad → / ← switches tabs, C + B closes the window,
+Z + B closes the tab, and C + Z + B closes the browser window. Create your own with 2 to 4 buttons in
+**Preferencias → Modo mouse → Combinaciones**. When C or Z belongs to a combination, its normal function
+runs on release.
+
 Everything is configurable in **Preferencias → Modo mouse**.
 
 ### On-screen keyboard
@@ -159,6 +165,22 @@ Steam, or keep Steam's default layout and use this app's profiles.
   shows in the sidebar and on its page.
 - **Battery:** after 10 idle minutes the Wiimote is turned off (`wii-gamepad --idle 20` changes
   it, `--idle 0` disables it). The accelerometer is only enabled by profiles that use tilt.
+
+## Wiimote speaker (experimental)
+
+Alerts play on the PC: the app doesn't use the Wiimote speaker yet, because the Linux driver
+doesn't handle it. To check yours, stop the bridge and use this tool, which sends audio straight
+to the Wiimote:
+
+```bash
+systemctl --user stop wii-gamepad
+sudo python3 wii_speaker_test.py --listar
+sudo python3 wii_speaker_test.py
+sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
+```
+
+It tries PCM and ADPCM and asks what you heard (in Spanish). The sound is rough and, in our tests,
+only one of two Wiimotes played it, so silence here doesn't prove the speaker is broken.
 
 ## Tests
 
