@@ -166,6 +166,22 @@ Steam, or keep Steam's default layout and use this app's profiles.
 - **Battery:** after 10 idle minutes the Wiimote is turned off (`wii-gamepad --idle 20` changes
   it, `--idle 0` disables it). The accelerometer is only enabled by profiles that use tilt.
 
+## Wiimote speaker (experimental)
+
+Alerts play on the PC: the app doesn't use the Wiimote speaker yet, because the Linux driver
+doesn't handle it. To check yours, stop the bridge and use this tool, which sends audio straight
+to the Wiimote:
+
+```bash
+systemctl --user stop wii-gamepad
+sudo python3 wii_speaker_test.py --listar
+sudo python3 wii_speaker_test.py
+sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
+```
+
+It tries PCM and ADPCM and asks what you heard (in Spanish). The sound is rough and, in our tests,
+only one of two Wiimotes played it, so silence here doesn't prove the speaker is broken.
+
 ## Tests
 
 No Wiimote needed: they create a fake Wiimote, Nunchuk and Motion Plus with `uinput` and check

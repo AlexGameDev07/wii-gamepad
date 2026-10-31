@@ -249,6 +249,22 @@ sonidos, cópialos a `~/.config/wii-gamepad/sonidos/`.
 La batería de cada Wiimote se ve en la barra lateral y en su página. Las notificaciones usan
 `notify-send` (paquete `libnotify`), que instala `install.sh`.
 
+## Bocina del Wiimote (experimental)
+
+Los avisos se oyen en la PC: la app todavía no usa la bocina del Wiimote, porque el driver de
+Linux no la maneja. Para comprobar si la tuya funciona, apaga el puente y usa esta herramienta,
+que le manda audio directamente al Wiimote:
+
+```bash
+systemctl --user stop wii-gamepad
+sudo python3 wii_speaker_test.py --listar
+sudo python3 wii_speaker_test.py
+sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
+```
+
+Prueba PCM y ADPCM y te pregunta qué oíste. El sonido sale áspero y, en nuestras pruebas, de dos
+Wiimotes solo sonó uno, así que un mando en silencio aquí no prueba que su bocina esté dañada.
+
 ## Ahorro de batería
 
 Si no tocas el Wiimote en 10 minutos el puente lo desconecta y se apaga solo. Para
