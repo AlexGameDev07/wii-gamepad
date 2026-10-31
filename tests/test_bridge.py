@@ -12,6 +12,7 @@ wii-gamepad no arranca solo, para que no se quede con el Wiimote falso.
 """
 import json
 import os
+import pwd
 import select
 import subprocess
 import sys
@@ -28,7 +29,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import wii_gamepad as wg  # noqa: E402
 
-RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+# Con sudo, el servicio y su udev siguen siendo del usuario que lo llamó.
+USER = os.environ.get("SUDO_USER")
+OWNER = pwd.getpwnam(USER) if USER else pwd.getpwuid(os.getuid())
+HOME = Path(OWNER.pw_dir)
+RUNTIME = Path(f"/run/user/{OWNER.pw_uid}") if USER else Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{OWNER.pw_uid}"))
+SYSTEMCTL = (["sudo", "-u", USER, "env", f"XDG_RUNTIME_DIR={RUNTIME}"] if USER else []) + ["systemctl", "--user"]
 DROPIN = RUNTIME / "systemd" / "user.control" / "wii-gamepad.service.d" / "zz-test.conf"
 results = []
 
@@ -156,17 +162,23 @@ def axis(code, cond):
     return lambda ev: ev.type == e.EV_ABS and ev.code == code and cond(ev.value)
 
 
+def block_bridges():
+    """Un puente abierto a mano le quitaría a la prueba el Wiimote falso."""
+    if subprocess.run(["pgrep", "-f", r"^\S*python\S* .*wii_gamepad\.py"], capture_output=True).returncode == 0:
+        raise SystemExit("Hay un puente abierto: ciérralo con Ctrl+C antes de la prueba.")
+
+
 def block_service():
     """Que el servicio de usuario no arranque con el Wiimote falso (solo mientras dura la prueba)."""
-    unit = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd/user/wii-gamepad.service"
+    unit = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "systemd/user/wii-gamepad.service"
     if not unit.exists():
         return False
-    active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", "wii-gamepad.service"]).returncode == 0
+    active = subprocess.run(SYSTEMCTL + ["is-active", "--quiet", "wii-gamepad.service"]).returncode == 0
     if active:
         raise SystemExit("El puente está en marcha con un Wiimote real; apágalo antes de la prueba.")
     DROPIN.parent.mkdir(parents=True, exist_ok=True)
     DROPIN.write_text("[Unit]\nConditionPathExists=/wii-gamepad-en-prueba\n")
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+    subprocess.run(SYSTEMCTL + ["daemon-reload"], check=False)
     return True
 
 
@@ -176,7 +188,7 @@ def unblock_service():
         DROPIN.parent.rmdir()
     except OSError:
         pass
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+    subprocess.run(SYSTEMCTL + ["daemon-reload"], check=False)
 
 
 def test_config(tmp):
@@ -203,6 +215,28 @@ def test_mouse(fake, mouse):
     fake.press("Down")
     check("cruceta ↓ -> rueda", wait_event(mouse, lambda ev: ev.type == e.EV_REL and ev.code == e.REL_WHEEL)
           is not None)
+    def nunchuk_c(value):
+        fake.nunchuk.write(e.EV_KEY, e.BTN_C, value)
+        fake.nunchuk.syn()
+        time.sleep(0.05)
+
+    def keys():
+        """Las teclas que salieron, en orden."""
+        time.sleep(0.2)
+        return [(ev.code, ev.value) for ev in mouse.read() if ev.type == e.EV_KEY] \
+            if select.select([mouse.fd], [], [], 0)[0] else []
+
+    keys()
+    nunchuk_c(1)
+    nunchuk_c(0)
+    check("C solo -> Enter al soltarlo", keys() == [(e.KEY_ENTER, 1), (e.KEY_ENTER, 0)])
+    nunchuk_c(1)
+    fake.press("Right")
+    fake.press("Right")
+    tab = [(e.KEY_TAB, 1), (e.KEY_TAB, 0)]
+    check("mantener C y repetir la cruceta -> Alt y dos Tab", keys() == [(e.KEY_LEFTALT, 1)] + tab * 2)
+    nunchuk_c(0)
+    check("soltar C suelta Alt", keys() == [(e.KEY_LEFTALT, 0)])
 
 
 def quiet_config(tmp, **extra):
@@ -464,6 +498,7 @@ def test_players(tmp):
 def main():
     if not os.access("/dev/uinput", os.W_OK):
         raise SystemExit("Sin acceso a /dev/uinput: ejecuta install.sh primero.")
+    block_bridges()
     blocked = block_service()
     try:
         with tempfile.TemporaryDirectory() as tmp:

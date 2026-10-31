@@ -772,6 +772,7 @@ class Preferences(Adw.PreferencesDialog):
                 self.win.store.save()
             buttons.add(combo_row(wg.SOURCES[src][1], actions, m["buttons"].get(src, "none"), changed))
         page.add(buttons)
+        page.add(self.combos_group())
 
         def restore():
             cfg["mouse_combo"] = wg.GLOBAL_OPTIONS["mouse_combo"]
@@ -784,6 +785,70 @@ class Preferences(Adw.PreferencesDialog):
         page.add(group(None, None, button_row("Restaurar el modo mouse", "Restaurar", restore,
                                               style="destructive-action")))
         return page
+
+    def combos_group(self):
+        m = self.win.store.cfg["mouse"]
+        box = group("Combinaciones", "De 2 a 4 botones. Si C o Z están en una combinación, su función normal "
+                    "actúa al soltarlos. Mantén C o Z y repite la cruceta para seguir cambiando de ventana o "
+                    "pestaña. Dos botones del Wiimote, sin C ni Z, se aprietan casi a la vez.")
+        rows = []
+
+        def remove(item):
+            m["combos"].remove(item)
+            self.win.store.save()
+            refresh()
+
+        def refresh():
+            while rows:
+                box.remove(rows.pop())
+            for item in m["combos"]:
+                action = wg.MOUSE_ACTIONS.get(item["action"], ((), item["action"]))[1]
+                rows.append(Adw.ActionRow(title=wg.combo_label(item["buttons"]), subtitle=action))
+                delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                    tooltip_text="Quitar esta combinación")
+                delete.add_css_class("flat")
+                delete.connect("clicked", lambda _b, item=item: remove(item))
+                rows[-1].add_suffix(delete)
+                box.add(rows[-1])
+
+        add = Gtk.Button(valign=Gtk.Align.CENTER, child=Adw.ButtonContent(icon_name="list-add-symbolic", label="Añadir"))
+        add.add_css_class("flat")
+        add.connect("clicked", lambda _b: self.add_combo(refresh))
+        box.set_header_suffix(add)
+        refresh()
+        return box
+
+    def add_combo(self, refresh):
+        cfg = self.win.store.cfg
+        actions = {k: label for k, (_, label) in wg.MOUSE_ACTIONS.items() if k != "none"}
+        checks = {s: Gtk.ToggleButton(label=wg.SOURCES[s][1]) for s in wg.NUNCHUK_SOURCES + wg.WIIMOTE_SOURCES}
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, homogeneous=True,
+                           column_spacing=6, row_spacing=6)
+        for check in checks.values():
+            flow.append(check)
+        action = Gtk.DropDown.new_from_strings(list(actions.values()))
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.append(flow)
+        content.append(action)
+        dialog = Adw.AlertDialog(heading="Añadir combinación", body="Elige los botones y qué hacen.",
+                                 extra_child=content)
+        dialog.add_response("cancel", "Cancelar")
+        dialog.add_response("add", "Añadir")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+
+        def done(_d, response):
+            if response != "add":
+                return
+            buttons = [s for s, check in checks.items() if check.get_active()]
+            if problem := wg.combo_problem(cfg, buttons):
+                self.win.toast(problem)
+                return
+            cfg["mouse"]["combos"].append({"buttons": buttons, "action": list(actions)[action.get_selected()]})
+            self.win.store.save()
+            refresh()
+
+        dialog.connect("response", done)
+        dialog.present(self)
 
 
 class Window(Adw.ApplicationWindow):

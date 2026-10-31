@@ -126,6 +126,12 @@ anyone can or only player 1.
 Press **+ and − together** and the Wiimote drives the desktop mouse; press them again to go back
 to gamepad mode (it rumbles and plays a sound). Nunchuk stick (or gyro, or D-pad) moves the
 pointer, A/Z click, the D-pad scrolls and goes back/forward, and 2 opens the on-screen keyboard.
+Button combinations: with the Nunchuk attached, hold C or Z and press another button. C + D-pad → / ←
+switches windows (keep holding C and repeat), Z + D-pad → / ← switches tabs, C + B closes the window,
+Z + B closes the tab, and C + Z + B closes the browser window. Create your own with 2 to 4 buttons in
+**Preferencias → Modo mouse → Combinaciones**. When C or Z belongs to a combination, its normal function
+runs on release.
+
 Everything is configurable in **Preferencias → Modo mouse**.
 
 ### On-screen keyboard
