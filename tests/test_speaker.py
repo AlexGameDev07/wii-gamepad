@@ -101,8 +101,8 @@ class Mandos(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             raiz = Path(tmp)
             for nombre, hid, uniq in (("hidraw0", "0003:00000458:00006022", "x"),
-                                      ("hidraw3", "0005:0000057E:00000306", "d8:6b:f7:ec:72:19"),
-                                      ("hidraw4", "0005:0000057E:00000330", "2c:10:c1:dd:3e:94")):
+                                      ("hidraw3", "0005:0000057E:00000306", "66:77:88:99:aa:bb"),
+                                      ("hidraw4", "0005:0000057E:00000330", "00:11:22:33:44:55")):
                 (raiz / nombre / "device").mkdir(parents=True)
                 (raiz / nombre / "device/uevent").write_text(f"HID_ID={hid}\nHID_UNIQ={uniq}\n")
             self.assertEqual(ws.buscar(raiz), [("/dev/hidraw3", "66:77:88:99:AA:BB", "RVL-CNT-01"),
