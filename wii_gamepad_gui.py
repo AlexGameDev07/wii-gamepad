@@ -482,9 +482,51 @@ class App(tk.Tk):
         button_vars = {src: self.combo(right, i, wg.SOURCES[src][1], actions, changed)
                        for i, src in enumerate(wg.WIIMOTE_SOURCES + wg.NUNCHUK_SOURCES, start=1)}
 
+        chords = self.panel(win, "Combinaciones")
+        chords.grid(row=0, column=2, sticky="nsew", padx=(0, 12), pady=12)
+        chord_list = tk.Listbox(chords, width=46, height=11)
+        chord_list.grid(row=1, column=0, columnspan=4, sticky="ew")
+        chord_checks = {s: tk.BooleanVar() for s in wg.NUNCHUK_SOURCES + wg.WIIMOTE_SOURCES}
+        for i, (src, var) in enumerate(chord_checks.items()):
+            ttk.Checkbutton(chords, text=wg.SOURCES[src][1], variable=var, style="Panel.TCheckbutton").grid(
+                row=2 + i // 4, column=i % 4, sticky="w")
+        chord_action = tk.StringVar()
+        chord_options = [label for k, (_, label) in wg.MOUSE_ACTIONS.items() if k != "none"]
+        ttk.Combobox(chords, textvariable=chord_action, values=chord_options, state="readonly").grid(
+            row=6, column=0, columnspan=4, sticky="ew", pady=4)
+        chord_action.set(chord_options[0])
+
+        def show_chords():
+            chord_list.delete(0, "end")
+            for item in m["combos"]:
+                label = wg.MOUSE_ACTIONS.get(item["action"], ((), item["action"]))[1]
+                chord_list.insert("end", f"{wg.combo_label(item['buttons'])}: {label}")
+
+        def add_chord():
+            buttons = [s for s, var in chord_checks.items() if var.get()]
+            if problem := wg.combo_problem(self.cfg, buttons):
+                messagebox.showerror("Combinaciones", problem, parent=win)
+                return
+            m["combos"].append({"buttons": buttons, "action": key(actions, chord_action)})
+            self.save()
+            show_chords()
+
+        def remove_chord():
+            for i in reversed(chord_list.curselection()):
+                del m["combos"][i]
+            self.save()
+            show_chords()
+
+        ttk.Button(chords, text="Añadir", command=add_chord).grid(row=7, column=0, columnspan=2, sticky="ew")
+        ttk.Button(chords, text="Quitar", command=remove_chord).grid(row=7, column=2, columnspan=2, sticky="ew")
+        ttk.Label(chords, text="De 2 a 4 botones. Si C o Z están en una combinación, su función normal actúa "
+                  "al soltarlos.", style="Muted.TLabel", wraplength=330).grid(
+            row=8, column=0, columnspan=4, sticky="w", pady=(8, 0))
+
         def load():
             nonlocal loading
             loading = True
+            show_chords()
             combo_var.set(combos.get(self.cfg["mouse_combo"], combos["none"]))
             move_var.set(wg.MOUSE_MOVES.get(m["move"], wg.MOUSE_MOVES["stick"]))
             speed.set(m["speed"])

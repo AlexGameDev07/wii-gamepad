@@ -93,14 +93,35 @@ MOUSE_ACTIONS = {
     "vol_up": ((e.KEY_VOLUMEUP,), "Subir volumen"), "vol_down": ((e.KEY_VOLUMEDOWN,), "Bajar volumen"),
     "mute": ((e.KEY_MUTE,), "Silenciar"), "play": ((e.KEY_PLAYPAUSE,), "Reproducir / pausa"),
     "keyboard": ((), "Teclado en pantalla"),
+    "alt_tab_prev": ((e.KEY_LEFTALT, e.KEY_LEFTSHIFT, e.KEY_TAB), "Ventana anterior (Alt+Shift+Tab)"),
+    "tab_next": ((e.KEY_LEFTCTRL, e.KEY_TAB), "Pestaña siguiente (Ctrl+Tab)"),
+    "tab_prev": ((e.KEY_LEFTCTRL, e.KEY_LEFTSHIFT, e.KEY_TAB), "Pestaña anterior (Ctrl+Shift+Tab)"),
+    "tab_close": ((e.KEY_LEFTCTRL, e.KEY_W), "Cerrar pestaña (Ctrl+W)"),
+    "tab_new": ((e.KEY_LEFTCTRL, e.KEY_T), "Pestaña nueva (Ctrl+T)"),
+    "tab_reopen": ((e.KEY_LEFTCTRL, e.KEY_LEFTSHIFT, e.KEY_T), "Reabrir pestaña (Ctrl+Shift+T)"),
+    "browser_close": ((e.KEY_LEFTCTRL, e.KEY_LEFTSHIFT, e.KEY_W), "Cerrar ventana del navegador (Ctrl+Shift+W)"),
+    "reload": ((e.KEY_F5,), "Recargar (F5)"), "fullscreen": ((e.KEY_F11,), "Pantalla completa (F11)"),
+    "copy": ((e.KEY_LEFTCTRL, e.KEY_C), "Copiar (Ctrl+C)"), "paste": ((e.KEY_LEFTCTRL, e.KEY_V), "Pegar (Ctrl+V)"),
+    "cut": ((e.KEY_LEFTCTRL, e.KEY_X), "Cortar (Ctrl+X)"), "undo": ((e.KEY_LEFTCTRL, e.KEY_Z), "Deshacer (Ctrl+Z)"),
+    "select_all": ((e.KEY_LEFTCTRL, e.KEY_A), "Seleccionar todo (Ctrl+A)"),
+    "screenshot": ((e.KEY_SYSRQ,), "Captura de pantalla"),
 }
 WHEEL_ACTIONS = {"wheel_up": 1, "wheel_down": -1}
+# Como Alt en Alt+Tab, su modificador sigue apretado mientras se mantenga la combinación.
+SWITCH_ACTIONS = {"alt_tab", "alt_tab_prev", "tab_next", "tab_prev"}
+COMBO_SIZES = range(2, 5)
 # + y − quedan en "Nada": son la combinación para salir y, si no, cada cambio de modo tocaría el volumen.
 MOUSE_DEFAULTS = {"move": "stick", "speed": 1.0, "invert_gyro_x": False, "invert_gyro_y": False,
                   "auto_keyboard": True,  # mostrar el teclado en pantalla al entrar a un campo de texto
                   "buttons": {"A": "left", "B": "backspace", "Z": "right", "C": "enter",
                               "Up": "wheel_up", "Down": "wheel_down", "Left": "nav_back", "Right": "nav_fwd",
-                              "1": "esc", "2": "keyboard", "Home": "super", "+": "none", "-": "none"}}
+                              "1": "esc", "2": "keyboard", "Home": "super", "+": "none", "-": "none"},
+                  "combos": [{"buttons": b, "action": a} for b, a in (
+                      (["C", "Right"], "alt_tab"), (["C", "Left"], "alt_tab_prev"), (["C", "B"], "close"),
+                      (["C", "Up"], "vol_up"), (["C", "Down"], "vol_down"), (["C", "A"], "paste"),
+                      (["Z", "Right"], "tab_next"), (["Z", "Left"], "tab_prev"), (["Z", "B"], "tab_close"),
+                      (["Z", "Up"], "tab_new"), (["Z", "Down"], "tab_reopen"), (["Z", "A"], "copy"),
+                      (["C", "Z"], "play"), (["C", "Z", "B"], "browser_close"))]}
 # Motion Plus: eje evdev -> (eje del stick, invertido). Medido con un RVL-CNT-01-TR:
 # RY = giro izq./der. (derecha da negativo), RZ = punta arriba/abajo (arriba da
 # positivo; en Xbox arriba es negativo). RX (alabeo) no se usa.
@@ -201,6 +222,38 @@ BATTERY_CHECK = 120  # segundos entre lecturas de la batería (cada una le pide 
 
 def new_profile():
     return copy.deepcopy(RECOMMENDED_PROFILE) | PROFILE_OPTIONS
+
+
+def parse_combos(items):
+    """Las combinaciones válidas de la configuración como [(botones, acción), ...]."""
+    combos = {}
+    for item in items if isinstance(items, list) else []:
+        try:
+            buttons, action = frozenset(item["buttons"]), item["action"]
+        except (KeyError, TypeError):
+            continue
+        if (len(buttons) in COMBO_SIZES and buttons <= SOURCES.keys() and action != "none"
+                and action in MOUSE_ACTIONS):
+            combos.setdefault(buttons, action)
+    return list(combos.items())
+
+
+def combo_label(buttons):
+    return " + ".join(SOURCES[s][1] for s in SOURCES if s in buttons)
+
+
+def combo_problem(cfg, buttons):
+    """Por qué no se puede añadir esta combinación, o None."""
+    buttons = frozenset(buttons)
+    if len(buttons) not in COMBO_SIZES:
+        return f"Elige de {COMBO_SIZES[0]} a {COMBO_SIZES[-1]} botones"
+    if any(b == buttons for b, _ in parse_combos(cfg["mouse"]["combos"])):
+        return "Esa combinación ya existe"
+    for system in (MOUSE_COMBOS.get(cfg["mouse_combo"], MOUSE_COMBOS["none"]),
+                   RECENTER_COMBOS.get(cfg["recenter_combo"], RECENTER_COMBOS["none"])):
+        if system[0] and buttons.issuperset(system[0]):
+            return f"Choca con «{system[1]}», que ya usa esos botones"
+    return None
 
 
 def default_config():
@@ -547,6 +600,7 @@ class Mouse:
         keys = [*range(e.KEY_ESC, e.KEY_MICMUTE + 1), e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE]
         self.ui = UInput({e.EV_KEY: keys, e.EV_REL: [e.REL_X, e.REL_Y, e.REL_WHEEL]}, name=MOUSE_NAME)
         self.held = {}        # acción -> fuentes que la mantienen
+        self.switch_mods = []  # modificadores que deja apretados switch()
         self.wheel_next = {}  # acción de rueda mantenida -> cuándo repetirla
         self.velocity = (0.0, 0.0)  # px/s del stick o la cruceta
         self.frac = [0.0, 0.0]      # fracciones de píxel pendientes
@@ -571,6 +625,29 @@ class Mouse:
         for code in codes if srcs else reversed(codes):  # Alt antes que la tecla, y se suelta después
             self.ui.write(e.EV_KEY, code, int(bool(srcs)))
             self.ui.syn()
+
+    def switch(self, action):
+        """Toca la tecla de la acción y deja apretado su modificador hasta release_switch()."""
+        *mods, code = MOUSE_ACTIONS[action][0]
+        for m in reversed(self.switch_mods):
+            if m not in mods:
+                self.ui.write(e.EV_KEY, m, 0)
+        for m in mods:
+            if m not in self.switch_mods:
+                self.ui.write(e.EV_KEY, m, 1)
+        self.switch_mods = mods
+        self.ui.syn()
+        self.ui.write(e.EV_KEY, code, 1)
+        self.ui.syn()
+        self.ui.write(e.EV_KEY, code, 0)
+        self.ui.syn()
+
+    def release_switch(self):
+        for m in reversed(self.switch_mods):
+            self.ui.write(e.EV_KEY, m, 0)
+        if self.switch_mods:
+            self.ui.syn()
+        self.switch_mods = []
 
     def tap(self, strokes):
         """Escribe [(tecla, modificadores), ...] tecla a tecla, como alguien tecleando."""
@@ -618,16 +695,132 @@ class Mouse:
         return max(0.005, wait)
 
     def busy(self):
-        return any(self.held.values()) or any(self.velocity)
+        return any(self.held.values()) or any(self.velocity) or bool(self.switch_mods)
 
     def reset(self):
         for action, srcs in list(self.held.items()):
             for s in list(srcs):
                 self.press(action, s, False)
+        self.release_switch()
         self.velocity, self.frac = (0.0, 0.0), [0.0, 0.0]
 
     def close(self):
         self.ui.close()
+
+
+class Chords:
+    """Combinaciones de 2 a 4 botones del modo mouse, sobre la función normal de cada botón.
+
+    C y Z esperan a soltarse, el tiempo que haga falta, si están en alguna combinación.
+    Los botones del Wiimote solo esperan WINDOW si forman una combinación sin Nunchuk;
+    pasado ese tiempo actúan solos, para poder arrastrar con A. Una combinación contenida
+    en otra más larga se dispara al soltarla."""
+
+    WINDOW = 0.15
+    MODIFIERS = frozenset(("C", "Z"))
+
+    def __init__(self, combos, solo, fire, free):
+        self.combos, self.solo, self.fire, self.free = combos, solo, fire, free
+        self.waits = set()
+        for buttons, _ in combos:
+            self.waits |= buttons & self.MODIFIERS or buttons
+        self.down, self.used, self.soloed = set(), set(), set()
+        self.waiting = {}    # botón que espera -> hasta cuándo
+        self.pending = None  # combinación que se dispara al soltarla
+        self.held = None     # combinación disparada que sigue apretada
+
+    def press(self, src, now):
+        self.down.add(src)
+        fits = [c for c in self.combos if src in c[0] and c[0] <= self.down]
+        if fits:
+            best = max(fits, key=lambda c: len(c[0]))
+            if any(best[0] < buttons for buttons, _ in self.combos):
+                self.absorb(best[0])
+                self.pending = best
+            else:
+                self.trigger(best)
+            return
+        live = self.down - self.soloed - self.used
+        growing = len(live) > 1 and any(live < buttons for buttons, _ in self.combos)
+        if not growing:
+            self.settle(src)
+        if src in self.waits or growing:
+            self.waiting[src] = math.inf if src in self.MODIFIERS else now + self.WINDOW
+        else:
+            self.start_solo(src)
+
+    def release(self, src):
+        self.down.discard(src)
+        if self.pending and src in self.pending[0]:
+            self.tap(self.pending)
+        if self.held and src in self.held[0]:
+            self.fire(self.held[1], False)
+            self.held = None
+        if self.waiting.pop(src, None) is not None:
+            self.solo(src, True)
+            self.solo(src, False)
+        elif src in self.soloed:
+            self.soloed.discard(src)
+            self.solo(src, False)
+        had_used = bool(self.used)
+        self.used.discard(src)
+        if had_used and not self.used:
+            self.free()
+
+    def tick(self, now):
+        """Los que ya no pueden esperar más actúan solos; devuelve en cuántos segundos volver a llamar."""
+        for src, until in list(self.waiting.items()):
+            if now >= until:
+                del self.waiting[src]
+                self.start_solo(src)
+        return min(self.waiting.values(), default=math.inf) - now
+
+    def forget(self, buttons):
+        """Estos botones acaban de usarse en una combinación del sistema."""
+        self.down.difference_update(buttons)
+        self.used.difference_update(buttons)
+        self.soloed.difference_update(buttons)
+        for src in buttons:
+            self.waiting.pop(src, None)
+
+    def reset(self):
+        self.down.clear(), self.used.clear(), self.soloed.clear(), self.waiting.clear()
+        self.pending = self.held = None
+
+    def start_solo(self, src):
+        self.soloed.add(src)
+        self.solo(src, True)
+
+    def absorb(self, buttons):
+        """Estos botones ya no harán su función normal."""
+        for src in buttons & self.soloed:
+            self.soloed.discard(src)
+            self.solo(src, False)
+        for src in buttons:
+            self.waiting.pop(src, None)
+        self.used |= buttons
+
+    def trigger(self, combo):
+        self.absorb(combo[0])
+        self.pending = None
+        if self.held:
+            self.fire(self.held[1], False)
+        self.held = combo
+        self.fire(combo[1], True)
+
+    def tap(self, combo):
+        self.pending = None
+        self.fire(combo[1], True)
+        self.fire(combo[1], False)
+
+    def settle(self, src):
+        """Otro botón deshizo lo que esperaba: C y Z pierden su pulsación y el resto actúa."""
+        if self.pending:
+            self.tap(self.pending)
+        for other in list(self.waiting):
+            if other != src:
+                del self.waiting[other]
+                self.used.add(other) if other in self.MODIFIERS else self.start_solo(other)
 
 
 warned = set()
@@ -835,6 +1028,8 @@ class Player:
         self.buttons = {SOURCES[s][0]: (s, t) for s, t in self.profile["buttons"].items() if s in SOURCES}
         self.pad.reset()
         self.make_axes()
+        self.chords = Chords(self.bridge.combos, self.mouse_button, self.mouse_combo_action,
+                             self.bridge.mouse.release_switch)
         print(f"[{self.label}] Perfil: {self.profile_name}")
 
     def make_axes(self):
@@ -968,25 +1163,50 @@ class Player:
                         self.pad.press(self.profile["buttons"].get(s, "none"), s, False)
                         if self.mouse_mode:
                             b.mouse.press(b.mouse_cfg["buttons"].get(s, "none"), s, False)
+                    self.chords.forget(combo)
                     self.suppressed.update(combo)
                     action()
                     return
         if self.mouse_mode:
-            action = b.mouse_cfg["buttons"].get(src, "none")
-            if b.kb.visible and b.kb.button(src, bool(value), time.monotonic()):
+            if value == 2:
                 return
-            if action == "keyboard":
-                if value == 1:
-                    b.kb.hide() if b.kb.visible else b.show_keyboard()
-            elif not (src in ("Up", "Down", "Left", "Right") and self.dpad_moves()):
-                b.mouse.press(action, src, bool(value))
+            if b.kb.visible:
+                self.mouse_button(src, bool(value))
+            elif value:
+                self.chords.press(src, time.monotonic())
+            else:
+                self.chords.release(src)
         elif code in self.buttons:
             src, target = self.buttons[code]
             self.pad.press(target, src, bool(value))
 
+    def mouse_button(self, src, on):
+        """La función normal de un botón en modo mouse."""
+        b = self.bridge
+        action = b.mouse_cfg["buttons"].get(src, "none")
+        if b.kb.visible and b.kb.button(src, on, time.monotonic()):
+            return
+        if action == "keyboard":
+            if on:
+                b.kb.hide() if b.kb.visible else b.show_keyboard()
+        elif not (src in ("Up", "Down", "Left", "Right") and self.dpad_moves()):
+            b.mouse.press(action, src, on)
+
+    def mouse_combo_action(self, action, on):
+        b = self.bridge
+        if action == "keyboard":
+            if on:
+                b.kb.hide() if b.kb.visible else b.show_keyboard()
+        elif action in SWITCH_ACTIONS:
+            if on:
+                b.mouse.switch(action)
+        else:
+            b.mouse.press(action, "combo", on)
+
     def mode_changed(self):
         """Entró o salió del modo mouse."""
         self.pad.reset()
+        self.chords.reset()
         self.mouse_stick = [0.0, 0.0]
         self.bridge.rescan = True  # p. ej. abrir el Motion Plus si el puntero va con el giroscopio
         if self.rumble and self.bridge.rumble_on:
@@ -1007,8 +1227,9 @@ class Player:
         if self.bridge.kb.visible:  # la cruceta y el stick eligen teclas
             return 0.0, 0.0
         if self.dpad_moves():
-            dx = ("Right" in self.down) - ("Left" in self.down)
-            dy = ("Down" in self.down) - ("Up" in self.down)
+            down = self.down - self.chords.used  # la cruceta de una combinación no mueve el puntero
+            dx = ("Right" in down) - ("Left" in down)
+            dy = ("Down" in down) - ("Up" in down)
             if not (dx or dy):
                 self.dpad_since = None
                 return 0.0, 0.0
@@ -1066,6 +1287,8 @@ class Player:
         if self.rumble:
             level, ends = self.pad.rumble_level(now)
             timeout = min(timeout, ends, self.rumble.update(level if b.rumble_on else 0.0, now))
+        if self.mouse_mode:
+            timeout = min(timeout, self.chords.tick(now))
         if any(self.pad.held.values()) or (self.mouse_mode and b.mouse.busy()):  # botón mantenido
             self.last_input = now
         if b.idle_timeout and now - self.last_input > b.idle_timeout:
@@ -1074,6 +1297,7 @@ class Player:
             self.pad.reset()
             if self.mouse_mode:
                 b.mouse.reset()
+                self.chords.reset()
             if power_off(self.wiimote):
                 self.idle_off = True
             else:
@@ -1147,6 +1371,7 @@ class Bridge:
         self.mouse_combo = MOUSE_COMBOS.get(cfg["mouse_combo"], MOUSE_COMBOS["none"])[0]
         self.mouse_players = cfg["mouse_players"]
         self.mouse_cfg = cfg["mouse"]
+        self.combos = parse_combos(cfg["mouse"]["combos"])
         self.rumble_on = cfg["rumble"]
         self.sounds = cfg["sounds"]
         self.notifications = cfg["notifications"]
@@ -1260,6 +1485,8 @@ class Bridge:
             self.kb.stop_watch()
 
     def show_keyboard(self, auto=False):
+        if self.mouse_owner:
+            self.mouse_owner.chords.reset()
         self.mouse.reset()  # p. ej. el clic con A que entró al campo de texto sigue apretado
         self.kb.show(auto)
 

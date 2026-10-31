@@ -156,6 +156,26 @@ y vuelve a ser mando de juego (vibra y suena al cambiar). Siempre arranca en mod
 | Cruceta ← → | Atrás / Adelante (Alt+← / Alt+→) |
 | 1 / 2 / Home | Esc / Teclado en pantalla / Super |
 
+### Combinaciones
+
+Con el Nunchuk puesto, mantén C o Z y pulsa otro botón:
+
+| Combinación | Acción |
+|---|---|
+| C + Cruceta → / ← | Cambiar de ventana (Alt+Tab); mantén C y repite para avanzar |
+| Z + Cruceta → / ← | Cambiar de pestaña (Ctrl+Tab) |
+| C + B | Cerrar la ventana (Alt+F4) |
+| Z + B | Cerrar la pestaña (Ctrl+W) |
+| C + Z + B | Cerrar la ventana del navegador (Ctrl+Shift+W) |
+| Z + Cruceta ↑ / ↓ | Pestaña nueva / reabrir la cerrada |
+| C + Cruceta ↑ / ↓ | Subir / bajar el volumen |
+| Z + A / C + A | Copiar / pegar |
+| C + Z | Reproducir / pausa |
+
+Puedes crear las tuyas, de 2 a 4 botones, en **Preferencias → Modo mouse → Combinaciones**. Si C o Z
+están en una combinación, su función normal actúa al soltarlos. Dos botones del Wiimote sin C ni Z
+se aprietan casi a la vez, y esos botones tardan 0,15 s más en actuar solos.
+
 Todo se cambia en **Preferencias → Modo mouse**: la combinación, cada botón, la velocidad y con qué se
 mueve el puntero (stick, giroscopio o cruceta; el giroscopio tiene casillas para invertir
 cada eje). Sin Nunchuk, la cruceta mueve el puntero.
