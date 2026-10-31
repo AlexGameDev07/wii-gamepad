@@ -109,6 +109,9 @@ MOUSE_ACTIONS = {
 WHEEL_ACTIONS = {"wheel_up": 1, "wheel_down": -1}
 # Como Alt en Alt+Tab, su modificador sigue apretado mientras se mantenga la combinación.
 SWITCH_ACTIONS = {"alt_tab", "alt_tab_prev", "tab_next", "tab_prev"}
+# Mueven el foco sin que el usuario haya entrado a un campo de texto.
+FOCUS_ACTIONS = SWITCH_ACTIONS | {"close", "tab_close", "tab_reopen", "browser_close"}
+FOCUS_QUIET = 1.5  # segundos sin abrir solo el teclado en pantalla tras una de esas acciones
 COMBO_SIZES = range(2, 5)
 # + y − quedan en "Nada": son la combinación para salir y, si no, cada cambio de modo tocaría el volumen.
 MOUSE_DEFAULTS = {"move": "stick", "speed": 1.0, "invert_gyro_x": False, "invert_gyro_y": False,
@@ -1028,8 +1031,7 @@ class Player:
         self.buttons = {SOURCES[s][0]: (s, t) for s, t in self.profile["buttons"].items() if s in SOURCES}
         self.pad.reset()
         self.make_axes()
-        self.chords = Chords(self.bridge.combos, self.mouse_button, self.mouse_combo_action,
-                             self.bridge.mouse.release_switch)
+        self.chords = Chords(self.bridge.combos, self.mouse_button, self.mouse_combo_action, self.release_switch)
         print(f"[{self.label}] Perfil: {self.profile_name}")
 
     def make_axes(self):
@@ -1190,14 +1192,23 @@ class Player:
         action = b.mouse_cfg["buttons"].get(src, "none")
         if b.kb.visible and b.kb.button(src, on, time.monotonic()):
             return
+        if action in FOCUS_ACTIONS:
+            b.ignore_focus()
         if action == "keyboard":
             if on:
                 b.kb.hide() if b.kb.visible else b.show_keyboard()
         elif not (src in ("Up", "Down", "Left", "Right") and self.dpad_moves()):
             b.mouse.press(action, src, on)
 
+    def release_switch(self):
+        if self.bridge.mouse.switch_mods:
+            self.bridge.ignore_focus()  # soltar Alt es lo que cambia de ventana
+        self.bridge.mouse.release_switch()
+
     def mouse_combo_action(self, action, on):
         b = self.bridge
+        if action in FOCUS_ACTIONS:
+            b.ignore_focus()
         if action == "keyboard":
             if on:
                 b.kb.hide() if b.kb.visible else b.show_keyboard()
@@ -1363,6 +1374,7 @@ class Bridge:
         self.rescan = False  # buscar accesorios ya (p. ej. abrir el Motion Plus al entrar al modo mouse)
         self.state_dirty = True
         self.full_warned = False
+        self.focus_quiet = 0.0  # hasta cuándo no abrir solo el teclado en pantalla
         self.kb = wii_keyboard.Keyboard(mouse.tap)
         self.reload()
 
@@ -1494,13 +1506,17 @@ class Bridge:
         self.mouse.reset()  # p. ej. el clic con A que entró al campo de texto sigue apretado
         self.kb.show(auto)
 
+    def ignore_focus(self):
+        self.focus_quiet = time.monotonic() + FOCUS_QUIET
+
     def focus_changed(self):
         """Aviso del vigilante de foco: mostrar el teclado al entrar a un campo de texto, quitarlo al salir."""
         text = self.kb.read_focus()
         if not self.mouse_owner or text is None:
             return
         if text and not self.kb.visible:
-            self.show_keyboard(auto=True)
+            if time.monotonic() >= self.focus_quiet:
+                self.show_keyboard(auto=True)
         elif not text and self.kb.auto:
             self.kb.hide()
 

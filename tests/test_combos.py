@@ -190,13 +190,15 @@ class Puente(unittest.TestCase):
         self.bridge = type("B", (), dict(mouse=mouse, mouse_cfg=cfg, kb=self.kb, combo=(), mouse_combo=("+", "-"),
                                          combos=wg.parse_combos(cfg["combos"])))()
         self.bridge.toggle_mouse = lambda _p: None
+        self.bridge.focus_quiet = 0.0
+        self.bridge.ignore_focus = lambda: wg.Bridge.ignore_focus(self.bridge)
         self.player = wg.Player.__new__(wg.Player)
         self.player.bridge, self.player.extras = self.bridge, {wg.NUNCHUK: None}
         self.player.down, self.player.suppressed = set(), set()
         self.player.pad = type("Pad", (), {"press": lambda *_: None})()
         self.player.profile = {"buttons": {}}
         self.player.chords = wg.Chords(self.bridge.combos, self.player.mouse_button, self.player.mouse_combo_action,
-                                       mouse.release_switch)
+                                       self.player.release_switch)
         self.bridge.mouse_owner = self.player
         self.log = mouse.ui.log
 
@@ -235,6 +237,38 @@ class Puente(unittest.TestCase):
     def test_a_es_clic_al_instante_aunque_este_en_una_combinacion(self):
         self.boton("A", 1)
         self.assertEqual(self.log, [(e.BTN_LEFT, 1)])
+
+    def foco_en_texto(self):
+        """Avisa de que el foco cayó en un campo de texto; devuelve si se abrió el teclado."""
+        abiertos = []
+        self.kb.read_focus = lambda: True
+        self.bridge.show_keyboard = lambda auto=False: abiertos.append(auto)
+        wg.Bridge.focus_changed(self.bridge)
+        return bool(abiertos)
+
+    def test_cerrar_con_combinacion_no_abre_el_teclado(self):
+        self.boton("Z", 1)
+        self.boton("B", 1)
+        self.boton("B", 0)
+        self.boton("Z", 0)
+        self.assertFalse(self.foco_en_texto())
+        self.bridge.focus_quiet = 0.0
+        self.assertTrue(self.foco_en_texto())
+
+    def test_soltar_alt_tab_no_abre_el_teclado(self):
+        self.boton("C", 1)
+        self.boton("Right", 1)
+        self.boton("Right", 0)
+        self.bridge.focus_quiet = 0.0
+        self.boton("C", 0)
+        self.assertFalse(self.foco_en_texto())
+
+    def test_pestana_nueva_si_abre_el_teclado(self):
+        self.boton("Z", 1)
+        self.boton("Up", 1)
+        self.boton("Up", 0)
+        self.boton("Z", 0)
+        self.assertTrue(self.foco_en_texto())
 
     def test_el_teclado_en_pantalla_no_pasa_por_las_combinaciones(self):
         self.kb.visible = True
