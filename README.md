@@ -98,8 +98,6 @@ La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega), sigue 
 claro u oscuro del sistema y tiene animaciones. En el menú ☰ → **Preferencias** están el
 tema, un interruptor para quitar las animaciones, los avisos y el modo mouse.
 
-![Tema oscuro](docs/ventana-oscura.png)
-
 Los cambios se aplican al instante, sin reiniciar nada. Se guardan en
 `~/.config/wii-gamepad/config.json`, con un perfil por juego:
 
