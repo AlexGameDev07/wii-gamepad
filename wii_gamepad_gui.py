@@ -18,6 +18,7 @@ from evdev import ecodes as e, ff
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wii_gamepad as wg  # noqa: E402
+import wii_news as wn  # noqa: E402
 
 BG, PANEL, FG, MUTED, ACCENT, OFF = "#1e1f26", "#2a2c36", "#e8e8ee", "#9a9cab", "#3fa7ff", "#3a3d4a"
 XBOX_COLORS = {"A": "#4caf50", "B": "#f44336", "X": "#2196f3", "Y": "#ffc107"}
@@ -131,13 +132,18 @@ class App(tk.Tk):
             pass
         self.configure(bg=BG)
         self.minsize(760, 540)
+        new_install = not wg.CONFIG.exists()
         self.cfg = wg.load_config()
+        if new_install:
+            wn.mark_seen(self.cfg)
         self.loading = False
         self.bridge = None
         self.style()
         self.build()
         self.load_profile()
         self.after(1000, self.refresh_bridge)
+        if wn.pending_release(self.cfg) or wn.unread_notices(self.cfg):
+            self.after(300, self.open_news)
 
     def style(self):
         s = ttk.Style(self)
@@ -271,6 +277,8 @@ class App(tk.Tk):
         self.bridge_btn = ttk.Button(bottom, text="Iniciar puente", command=self.toggle_bridge)
         self.bridge_btn.pack(side="right", padx=2)
         ttk.Button(bottom, text="Restaurar perfil", command=self.reset_profile).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Novedades…", command=self.open_news).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Experimental…", command=self.open_experimental).pack(side="right", padx=2)
         ttk.Button(bottom, text="Avisos…", command=self.open_sounds).pack(side="right", padx=2)
         ttk.Button(bottom, text="Modo mouse…", command=self.open_mouse).pack(side="right", padx=2)
         ttk.Button(bottom, text="Wiimotes…", command=self.open_wiimotes).pack(side="right", padx=2)
@@ -388,6 +396,77 @@ class App(tk.Tk):
             subprocess.Popen(["xdg-open", str(user_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         ttk.Button(f, text="Abrir carpeta", command=open_dir).grid(row=r + 1, column=0, sticky="w", pady=(6, 0))
+
+    def open_news(self):
+        if getattr(self, "news_win", None) and self.news_win.winfo_exists():
+            self.news_win.lift()
+            return
+        win = self.news_win = tk.Toplevel(self)
+        win.title("Novedades")
+        win.configure(bg=BG)
+        release = wn.RELEASES[0]
+        panel = self.panel(win, release["title"])
+        panel.pack(fill="both", expand=True, padx=12, pady=12)
+        f = ttk.Frame(panel, style="Panel.TFrame")  # panel usa grid; aquí todo va en columna
+        f.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        for _icon, title, body in release["pages"]:
+            ttk.Label(f, text=title, style="Head.TLabel").pack(anchor="w", pady=(8, 0))
+            ttk.Label(f, text=body, wraplength=420, justify="left").pack(anchor="w")
+        for notice in wn.unread_notices(self.cfg):
+            ttk.Separator(f).pack(fill="x", pady=10)
+            ttk.Label(f, text=notice["title"], style="Head.TLabel").pack(anchor="w")
+            ttk.Label(f, text=notice["body"], wraplength=420, justify="left").pack(anchor="w")
+
+            def go(n=notice):
+                self.read_notice(n)
+                win.destroy()
+                if n["target"] == "preferences:experimental":
+                    self.open_experimental()
+
+            ttk.Button(f, text=notice["action"], command=go).pack(anchor="e", pady=(4, 0))
+        wn.mark_seen(self.cfg)
+        self.save()
+
+    def read_notice(self, notice):
+        wn.mark_read(self.cfg, notice["id"])
+        self.save()
+
+    def open_experimental(self):
+        if getattr(self, "experimental_win", None) and self.experimental_win.winfo_exists():
+            self.experimental_win.lift()
+            return
+        win = self.experimental_win = tk.Toplevel(self)
+        win.title("Experimental")
+        win.configure(bg=BG)
+        panel = self.panel(win, "Bocina del Wiimote")
+        panel.pack(fill="both", expand=True, padx=12, pady=12)
+        f = ttk.Frame(panel, style="Panel.TFrame")
+        f.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        ttk.Label(f, wraplength=380, justify="left",
+                  text="Los avisos suenan en el Wiimote en lugar de en la PC. Se oye áspero, gasta más pilas y puede "
+                       "cortar la vibración mientras suena. Si la bocina no responde, sigue sonando la PC.").pack(anchor="w")
+        on = tk.BooleanVar(value=self.cfg["speaker"])
+        volume = tk.IntVar(value=self.cfg["speaker_volume"])
+
+        def changed(*_):
+            self.cfg["speaker"], self.cfg["speaker_volume"] = on.get(), volume.get()
+            self.save()
+
+        def test():
+            state = wg.read_state()
+            path = state["players"][0].get("hidraw") if state and state["players"] else None
+            if not path:
+                self.status.configure(text="El Wiimote no está conectado")
+            elif wg.wii_speaker.sonar(path, "prueba", volume.get()):
+                self.status.configure(text="Sonando...")
+            else:
+                self.status.configure(text="Sin permiso sobre la bocina: vuelve a ejecutar install.sh")
+
+        ttk.Checkbutton(f, text="Usar la bocina", variable=on, command=changed).pack(anchor="w", pady=(8, 0))
+        ttk.Label(f, text="Volumen (%)").pack(anchor="w", pady=(8, 0))
+        tk.Scale(f, from_=10, to=100, orient="horizontal", variable=volume, bg=PANEL, fg=FG, highlightthickness=0,
+                 command=changed).pack(fill="x")
+        ttk.Button(f, text="Probar", command=test).pack(anchor="e", pady=(8, 0))
 
     def open_wiimotes(self):
         """Perfil de cada Wiimote (la ventana con GTK4 muestra mucho más)."""

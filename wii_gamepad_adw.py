@@ -25,9 +25,10 @@ from evdev import ecodes as e, ff  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wii_gamepad as wg  # noqa: E402
+import wii_news as wn  # noqa: E402
 
 APP_ID = "io.github.alexgamedev07.WiiGamepad"
-VERSION = "2.0"
+VERSION = wn.VERSION
 SERVICE = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user" / "wii-gamepad.service"
 THEMES = {"system": "Como el sistema", "light": "Claro", "dark": "Oscuro"}
 # Colores de los botones del mando Xbox (paleta de GNOME)
@@ -46,6 +47,8 @@ CSS = """
 .bridge-dot.off { color: alpha(currentColor, 0.35); }
 .bridge-dot.waiting { color: @warning_color; animation: pulse 1.4s ease-in-out infinite alternate; }
 .pad-card { padding: 12px; }
+.notice-dot { background-color: @accent_bg_color; border-radius: 999px; min-width: 8px; min-height: 8px; }
+.news-icon { color: @accent_color; }
 @keyframes pulse { from { opacity: 1; } to { opacity: 0.35; } }
 """
 
@@ -162,12 +165,25 @@ def test_rumble(phys):
     return None
 
 
+def test_speaker(player, volume):
+    path = (player or {}).get("hidraw")
+    if not path:
+        return "El Wiimote no está conectado"
+    if not wg.wii_speaker.sonar(path, "prueba", volume):
+        return "Sin permiso sobre la bocina: vuelve a ejecutar install.sh"
+    return None
+
+
 class Store:
     """La configuración en memoria. Guarda al momento o, para los deslizadores y textos,
     con un poco de retraso para no escribir en cada píxel."""
 
     def __init__(self):
+        new_install = not wg.CONFIG.exists()
         self.cfg = wg.load_config()
+        if new_install:  # a quien acaba de instalar no hay nada que contarle como novedad
+            wn.mark_seen(self.cfg)
+            wg.save_config(self.cfg)
         self._pending = None
 
     def save(self, delay=False):
@@ -544,6 +560,7 @@ class PlayerPage(Adw.NavigationPage):
         edit_row.connect("activated", lambda _r: win.select(("profile", self.profile_name())))
         self.actions = group("Acciones", None,
                              button_row("Probar vibración", "Vibrar", self.rumble),
+                             button_row("Probar bocina", "Sonar", self.speaker, "Experimental"),
                              button_row("Apagar el Wiimote", "Apagar", self.power_off, style="destructive-action",
                                         subtitle="Para volver a usarlo, presiona 1+2"))
         forget = group(None, None, button_row("Olvidar este Wiimote", "Olvidar", self.forget,
@@ -629,6 +646,9 @@ class PlayerPage(Adw.NavigationPage):
             err = "La vibración está desactivada en Preferencias"
         self.win.toast(err or "Vibrando…")
 
+    def speaker(self):
+        self.win.toast(test_speaker(self.player(), self.win.store.cfg["speaker_volume"]) or "Sonando…")
+
     def power_off(self):
         if not wg.disconnect(self.id):
             self.win.toast("No se pudo apagar (¿falta bluetoothctl?)")
@@ -642,7 +662,7 @@ class PlayerPage(Adw.NavigationPage):
 
 class Preferences(Adw.PreferencesDialog):
     def __init__(self, win):
-        super().__init__(title="Preferencias", search_enabled=True)
+        super().__init__(title="Preferencias", search_enabled=True, content_width=720)
         self.win = win
         cfg = win.store.cfg
         save = win.store.save
@@ -683,6 +703,33 @@ class Preferences(Adw.PreferencesDialog):
         self.add(general)
         self.add(self.alerts_page())
         self.add(self.mouse_page())
+        self.add(self.experimental_page())
+
+    def experimental_page(self):
+        cfg = self.win.store.cfg
+        save = self.win.store.save
+
+        def set_on(value):
+            cfg["speaker"] = value
+            save()
+
+        def set_volume(value):
+            cfg["speaker_volume"] = round(value)
+            save(True)
+
+        def test():
+            players = self.win.players()
+            self.win.toast(test_speaker(players[0] if players else None, cfg["speaker_volume"]) or "Sonando…")
+
+        page = Adw.PreferencesPage(title="Experimental", icon_name="applications-science-symbolic",
+                                   name="experimental")
+        page.add(group(
+            "Bocina del Wiimote", "Los avisos suenan en el Wiimote en lugar de en la PC. Se oye áspero, gasta más "
+            "pilas y puede cortar la vibración mientras suena. Si la bocina no responde, sigue sonando la PC.",
+            switch_row("Usar la bocina", cfg["speaker"], set_on),
+            scale_row("Volumen", 10, 100, cfg["speaker_volume"], set_volume, "{:.0f} %"),
+            button_row("Probar", "Sonar", test, "En el primer Wiimote conectado")))
+        return page
 
     def alerts_page(self):
         cfg = self.win.store.cfg
@@ -851,6 +898,45 @@ class Preferences(Adw.PreferencesDialog):
         dialog.present(self)
 
 
+class ReleaseDialog(Adw.Dialog):
+    """Lo nuevo de la versión, página por página."""
+
+    def __init__(self, release, on_done):
+        super().__init__(title=release["title"], content_width=420, content_height=420)
+        self.connect("closed", lambda _d: on_done())
+        self.carousel = Adw.Carousel(hexpand=True, vexpand=True, interactive=True)
+        for icon, title, body in release["pages"]:
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, valign=Gtk.Align.CENTER, hexpand=True,
+                           margin_start=32, margin_end=32)
+            page.append(Gtk.Image(icon_name=icon, pixel_size=72, css_classes=["news-icon"]))
+            page.append(Gtk.Label(label=title, wrap=True, justify=Gtk.Justification.CENTER, css_classes=["title-2"]))
+            page.append(Gtk.Label(label=body, wrap=True, justify=Gtk.Justification.CENTER))
+            self.carousel.append(page)
+        self.next = Gtk.Button(label="Siguiente", halign=Gtk.Align.CENTER, css_classes=["pill", "suggested-action"])
+        self.next.connect("clicked", lambda _b: self.advance())
+        self.carousel.connect("notify::position", lambda *_: self.relabel())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_bottom=20)
+        box.append(self.carousel)
+        box.append(Adw.CarouselIndicatorDots(carousel=self.carousel))
+        box.append(self.next)
+        view = Adw.ToolbarView(content=box)
+        view.add_top_bar(Adw.HeaderBar())
+        self.set_child(view)
+        self.relabel()
+
+    def last(self):
+        return round(self.carousel.get_position()) >= self.carousel.get_n_pages() - 1
+
+    def relabel(self):
+        self.next.set_label("Listo" if self.last() else "Siguiente")
+
+    def advance(self):
+        if self.last():
+            self.close()
+        else:
+            self.carousel.scroll_to(self.carousel.get_nth_page(round(self.carousel.get_position()) + 1), True)
+
+
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Wii Gamepad", default_width=1060, default_height=760)
@@ -868,12 +954,22 @@ class Window(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         menu = Gio.Menu()
         menu.append("Preferencias", "app.preferences")
+        menu.append("Novedades", "app.news")
         menu.append("Acerca de Wii Gamepad", "app.about")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
                                        tooltip_text="Menú principal"))
         new = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Nuevo perfil")
         new.connect("clicked", lambda _b: self.new_profile())
         header.pack_start(new)
+        self.notice_dot = Gtk.Box(halign=Gtk.Align.END, valign=Gtk.Align.START, css_classes=["notice-dot"])
+        bell = Gtk.Overlay(child=Gtk.Image(icon_name="preferences-system-notifications-symbolic"))
+        bell.add_overlay(self.notice_dot)
+        self.notices = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=8, margin_bottom=8,
+                               margin_start=8, margin_end=8, width_request=280)
+        self.notice_button = Gtk.MenuButton(child=bell, popover=Gtk.Popover(child=self.notices),
+                                            tooltip_text="Avisos")
+        header.pack_end(self.notice_button)
+        self.refresh_notices()
 
         self.bridge_dot = Gtk.Label(label="●", css_classes=["bridge-dot"])
         self.bridge_label = Gtk.Label(xalign=0, hexpand=True, wrap=True, css_classes=["caption"])
@@ -902,6 +998,7 @@ class Window(Adw.ApplicationWindow):
         self.select(("player", players[0]["id"]) if players else ("profile", self.store.cfg["active"]), show=False)
         GLib.timeout_add(1000, self.poll)
         self.connect("close-request", self.on_close)
+        GLib.idle_add(self.show_news)
 
     # --- datos -----------------------------------------------------------------
     def players(self):
@@ -983,6 +1080,51 @@ class Window(Adw.ApplicationWindow):
         if show:
             self.split.set_show_content(True)
         self.highlight()
+
+    # --- novedades y avisos ------------------------------------------------------
+    def show_news(self, again=False):
+        release = wn.RELEASES[0] if again else wn.pending_release(self.store.cfg)
+        if release:
+            def done():
+                wn.mark_seen(self.store.cfg)
+                self.store.save()
+            ReleaseDialog(release, done).present(self)
+
+    def refresh_notices(self):
+        while child := self.notices.get_first_child():
+            self.notices.remove(child)
+        unread = wn.unread_notices(self.store.cfg)
+        self.notice_dot.set_visible(bool(unread))
+        if not unread:
+            self.notices.append(Gtk.Label(label="No hay avisos nuevos", css_classes=["dim-label"]))
+        for notice in unread:
+            self.notices.append(self.notice_row(notice))
+
+    def notice_row(self, notice):
+        go = Gtk.Button(label=notice["action"], css_classes=["suggested-action"])
+        go.connect("clicked", lambda _b: self.open_notice(notice))
+        dismiss = Gtk.Button(label="Descartar")
+        dismiss.connect("clicked", lambda _b: self.read_notice(notice))
+        buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+        buttons.append(dismiss)
+        buttons.append(go)
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        row.append(Gtk.Label(label=notice["title"], xalign=0, css_classes=["heading"]))
+        row.append(Gtk.Label(label=notice["body"], xalign=0, wrap=True, max_width_chars=36))
+        row.append(buttons)
+        return row
+
+    def read_notice(self, notice):
+        wn.mark_read(self.store.cfg, notice["id"])
+        self.store.save()
+        self.refresh_notices()
+
+    def open_notice(self, notice):
+        self.notice_button.popdown()
+        self.read_notice(notice)
+        kind, _, where = notice["target"].partition(":")
+        if kind == "preferences":
+            self.get_application().show_preferences(page=where)
 
     def toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text, timeout=2))
@@ -1123,6 +1265,7 @@ class App(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         for name, cb, accels in (("preferences", self.show_preferences, ["<Control>comma"]),
+                                 ("news", lambda *_: self.get_active_window().show_news(again=True), []),
                                  ("about", self.show_about, []),
                                  ("quit", lambda *_: self.get_active_window().close(), ["<Control>q"])):
             action = Gio.SimpleAction.new(name, None)
@@ -1146,8 +1289,11 @@ class App(Adw.Application):
             self.system_animations = settings.props.gtk_enable_animations
         settings.props.gtk_enable_animations = self.system_animations and ui["animations"]
 
-    def show_preferences(self, *_):
-        Preferences(self.get_active_window()).present(self.get_active_window())
+    def show_preferences(self, *_, page=None):
+        dialog = Preferences(self.get_active_window())
+        if page:
+            dialog.set_visible_page_name(page)
+        dialog.present(self.get_active_window())
 
     def show_about(self, *_):
         about = Adw.AboutDialog(application_name="Wii Gamepad", application_icon="wii-gamepad",

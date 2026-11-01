@@ -177,6 +177,8 @@ def outside():
     sys.path.insert(0, str(ROOT / "tests"))
     import test_bridge as tb
     import wii_gamepad as wg
+    sys.path.insert(0, str(ROOT))
+    import wii_news as wn
 
     engine = shutil.which("podman") or sys.exit("Necesitas podman")
     print("Preparando el contenedor...")
@@ -193,6 +195,7 @@ def outside():
             cfg = wg.default_config()
             cfg["sounds"] = {k: "" for k in cfg["sounds"]}
             cfg["idle_timeout_min"] = 0
+            cfg["news"]["seen"] = wn.VERSION  # que la bienvenida no tape la ventana
             (cfg_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 
             # Motion Plus quieto desde el principio, para que el giroscopio ya esté calibrado al grabar

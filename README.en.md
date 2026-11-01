@@ -168,19 +168,19 @@ Steam, or keep Steam's default layout and use this app's profiles.
 
 ## Wiimote speaker (experimental)
 
-Alerts play on the PC: the app doesn't use the Wiimote speaker yet, because the Linux driver
-doesn't handle it. To check yours, stop the bridge and use this tool, which sends audio straight
-to the Wiimote:
+Alerts can play on the Wiimote instead of the PC. Turn it on in **Preferencias → Experimental**,
+which also has the volume and a test button; each Wiimote's page has «Probar bocina» too. If you are
+updating, run `install.sh` again: it installs the permission this needs.
+
+The sound is rough, uses more battery and may cut rumble while it plays. If the speaker doesn't
+respond, the alert still plays on the PC. In our tests, only one of two Wiimotes played sound.
+
+For a deeper test with several formats, stop the bridge and run:
 
 ```bash
 systemctl --user stop wii-gamepad
-sudo python3 wii_speaker_test.py --listar
 sudo python3 wii_speaker_test.py
-sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
 ```
-
-It tries PCM and ADPCM and asks what you heard (in Spanish). The sound is rough and, in our tests,
-only one of two Wiimotes played it, so silence here doesn't prove the speaker is broken.
 
 ## Tests
 

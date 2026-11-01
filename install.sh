@@ -52,7 +52,7 @@ has_systemd() { [ -d /run/systemd/system ]; }
 reload_udev() {
     if command -v udevadm >/dev/null; then
         $SUDO udevadm control --reload-rules 2>/dev/null || true
-        $SUDO udevadm trigger --subsystem-match=input --subsystem-match=misc --subsystem-match=leds 2>/dev/null || true
+        $SUDO udevadm trigger --subsystem-match=input --subsystem-match=misc --subsystem-match=leds --subsystem-match=hidraw 2>/dev/null || true
     fi
 }
 
@@ -183,6 +183,9 @@ info "Instalando regla udev en $UDEV_RULE"
     echo '# wii-gamepad: acceso del usuario al Wiimote y a /dev/uinput'
     echo 'KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"'
     echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0660", GROUP="input", TAG+="uaccess"'
+    echo '# La bocina del Wiimote (experimental) va por hidraw'
+    echo 'SUBSYSTEM=="hidraw", KERNELS=="0005:057E:0306.*", MODE="0660", GROUP="input", TAG+="uaccess"'
+    echo 'SUBSYSTEM=="hidraw", KERNELS=="0005:057E:0330.*", MODE="0660", GROUP="input", TAG+="uaccess"'
     if [ "$WANT_SERVICE" -eq 1 ] && has_systemd; then
         echo '# Arranca el puente (servicio de usuario) cuando se conecta el Wiimote'
         echo "SUBSYSTEM==\"input\", KERNEL==\"event*\", ATTRS{name}==\"Nintendo Wii Remote\", TAG+=\"systemd\", ENV{SYSTEMD_USER_WANTS}+=\"$APP.service\""
@@ -206,7 +209,7 @@ fi
 # --- 5. Programa ----------------------------------------------------------------
 info "Instalando el programa en $DATA_DIR"
 install -m 755 "$SRC_DIR/wii_gamepad.py" "$SRC_DIR/wii_gamepad_config.py" "$SRC_DIR/wii_gamepad_adw.py" \
-    "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$DATA_DIR/"
+    "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$SRC_DIR/wii_speaker.py" "$SRC_DIR/wii_news.py" "$DATA_DIR/"
 install -D -m 644 "$SRC_DIR/$APP.svg" "$ICON_FILE"
 install -m 644 "$SRC_DIR/$APP.svg" "$DATA_DIR/"  # icono de la ventana
 rm -rf "$DATA_DIR/sonidos"  # los incluidos se reemplazan; los del usuario están en ~/.config

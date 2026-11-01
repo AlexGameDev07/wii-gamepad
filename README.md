@@ -251,19 +251,20 @@ La batería de cada Wiimote se ve en la barra lateral y en su página. Las notif
 
 ## Bocina del Wiimote (experimental)
 
-Los avisos se oyen en la PC: la app todavía no usa la bocina del Wiimote, porque el driver de
-Linux no la maneja. Para comprobar si la tuya funciona, apaga el puente y usa esta herramienta,
-que le manda audio directamente al Wiimote:
+Los avisos pueden sonar en el Wiimote en lugar de en la PC. Actívalo en **Preferencias →
+Experimental**, donde también están el volumen y el botón de prueba; cada Wiimote tiene además
+«Probar bocina» en su página. Si actualizas desde otra versión, ejecuta `install.sh` de nuevo:
+instala el permiso que hace falta.
+
+El sonido sale áspero, gasta más pilas y puede cortar la vibración mientras suena. Si la bocina no
+responde, el aviso sigue sonando en la PC. En nuestras pruebas, de dos Wiimotes solo sonó uno.
+
+Para una prueba más a fondo, con varios formatos, apaga el puente y usa:
 
 ```bash
 systemctl --user stop wii-gamepad
-sudo python3 wii_speaker_test.py --listar
 sudo python3 wii_speaker_test.py
-sudo python3 wii_speaker_test.py --mando MAC --formato pcm --volumen 255
 ```
-
-Prueba PCM y ADPCM y te pregunta qué oíste. El sonido sale áspero y, en nuestras pruebas, de dos
-Wiimotes solo sonó uno, así que un mando en silencio aquí no prueba que su bocina esté dañada.
 
 ## Ahorro de batería
 
@@ -291,6 +292,7 @@ modo mouse, desconexiones y dos Wiimotes a la vez). La segunda instala la app en
 
 ```sh
 python3 tests/test_bridge.py   # necesita haber ejecutado install.sh
+python3 tests/test_news.py     # novedades y avisos de la app
 tests/install-matrix.sh        # necesita podman o docker
 python3 docs/escena.py         # regenera el GIF y las capturas de este README
 ```
