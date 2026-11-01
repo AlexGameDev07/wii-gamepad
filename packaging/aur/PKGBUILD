@@ -22,8 +22,9 @@ package() {
     local data=/usr/share/$pkgname
 
     install -Dm644 -t "$pkgdir$data" wii_gamepad.py wii_gamepad_config.py wii_gamepad_adw.py wii_gamepad_gui.py \
-        wii_keyboard.py wii-gamepad.svg
+        wii_keyboard.py wii_speaker.py wii_news.py wii-gamepad.svg
     install -Dm644 -t "$pkgdir$data/sonidos" sonidos/*
+    install -Dm644 -t "$pkgdir$data/bocina" bocina/*.s8
     install -Dm644 wii-gamepad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/wii-gamepad.svg"
     install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE sonidos/LICENSE-Kenney.txt
     install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname" README.md README.en.md
@@ -38,6 +39,9 @@ package() {
 # wii-gamepad: acceso del usuario al Wiimote y a /dev/uinput
 KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Nintendo Wii Remote*", MODE="0660", GROUP="input", TAG+="uaccess"
+# La bocina del Wiimote (experimental) va por hidraw
+SUBSYSTEM=="hidraw", KERNELS=="0005:057E:0306.*", MODE="0660", GROUP="input", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0005:057E:0330.*", MODE="0660", GROUP="input", TAG+="uaccess"
 # El LED del Wiimote muestra el número de jugador
 SUBSYSTEM=="leds", KERNEL=="*:blue:p[0-3]", DRIVERS=="wiimote", RUN+="/bin/chmod 0666 /sys%p/brightness"
 # Oculta el Wiimote original (y su Nunchuk) a los juegos: solo ven el mando virtual

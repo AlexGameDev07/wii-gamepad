@@ -27,6 +27,7 @@ import evdev
 from evdev import UInput, AbsInfo, ecodes as e, ff
 
 import wii_keyboard
+import wii_speaker
 
 WIIMOTE = "Nintendo Wii Remote"
 NUNCHUK = "Nintendo Wii Remote Nunchuk"
@@ -73,6 +74,7 @@ RECENTER_COMBOS = {"none": ((), "Desactivada"), "B+Down": (("B", "Down"), "B + C
 # Combinación que alterna entre mando de juego y mouse: id -> (fuentes, etiqueta)
 MOUSE_COMBOS = {"none": ((), "Desactivada"), "+-": (("+", "-"), "+ y − a la vez"), "1+2": (("1", "2"), "1 y 2 a la vez")}
 # Quién puede pasar al modo mouse cuando hay varios Wiimotes
+SPEAKER_SOUNDS = {"melodies": "Melodías de la bocina", "pc": "Los mismos sonidos de la PC"}
 MOUSE_PLAYERS = {"any": "Cualquiera (uno a la vez)", "p1": "Solo el jugador 1"}
 MOUSE_MOVES = {"stick": "Stick del Nunchuk", "gyro": "Giroscopio (apuntar)", "dpad": "Cruceta"}
 # Acciones del modo mouse: id -> (teclas que se aprietan juntas, etiqueta)
@@ -206,6 +208,9 @@ GLOBAL_OPTIONS = {"idle_timeout_min": 10, "recenter_combo": "B+Down", "rumble": 
                   "notifications": {"connect": True, "disconnect": True, "battery": True,
                                     "recenter": False, "nunchuk": False, "mouse": False},
                   "mouse_players": "any",
+                  "speaker": False, "speaker_volume": 100,  # experimental: los avisos en la bocina del Wiimote
+                  "speaker_sounds": "melodies",
+                  "news": {"seen": "", "read": []},  # wii_news.py
                   # Por Wiimote (su MAC): {"name": ..., "profile": ...}; sin perfil usa "active".
                   "devices": {},
                   "ui": {"animations": True, "theme": "system"}}
@@ -1020,8 +1025,13 @@ class Player:
         self.battery = battery_path(self.wiimote.path)
         self.battery_level = battery_level(self.battery)
         battery = f" · Batería: {self.battery_level} %" if self.battery_level is not None else ""
-        self.bridge.notify("connect", f"{self.label} conectado", f"Mando virtual {self.number}{battery}")
+        self.bridge.notify("connect", f"{self.label} conectado", f"Mando virtual {self.number}{battery}", player=self)
         self.battery_reads.append(self.battery_level)
+
+    def speak(self, event):
+        path = wii_speaker.ruta_de(self.group)
+        return bool(path) and wii_speaker.sonar(path, event, self.bridge.speaker_volume,
+                                                wii_speaker.sonido_de(self.bridge.cfg, event))
 
     def load_profile(self):
         cfg = self.bridge.cfg
@@ -1072,7 +1082,7 @@ class Player:
                     self.make_axes()
                     print(f"[{self.label}] Nunchuk conectado")
                     if not first:  # al encender ya suena el aviso del Wiimote
-                        self.bridge.notify("nunchuk", f"{self.label}: Nunchuk conectado")
+                        self.bridge.notify("nunchuk", f"{self.label}: Nunchuk conectado", player=self)
 
     def detach(self, name, gone):
         d = self.extras.pop(name)
@@ -1227,7 +1237,7 @@ class Player:
         if self.rumble and self.bridge.rumble_on:
             self.rumble.pulse(0.15)
         mode = "Modo mouse" if self.mouse_mode else "Modo mando de juego"
-        self.bridge.notify("mouse", f"{self.label}: {mode.lower()}")
+        self.bridge.notify("mouse", f"{self.label}: {mode.lower()}", player=self)
         print(f"[{self.label}] {mode}")
 
     def dpad_moves(self):
@@ -1276,7 +1286,7 @@ class Player:
             g.recenter()
         if self.rumble and self.bridge.rumble_on:
             self.rumble.pulse(0.15)  # aviso de que se recentró
-        self.bridge.notify("recenter", f"{self.label}: giroscopio recentrado")
+        self.bridge.notify("recenter", f"{self.label}: giroscopio recentrado", player=self)
         print(f"[{self.label}] Giroscopio recentrado")
 
     def handle_stick(self, mode, axis_id, value):
@@ -1296,7 +1306,7 @@ class Player:
             if now - self.nunchuk_gone >= UNPLUG_GRACE:
                 self.nunchuk_gone = None
                 print(f"[{self.label}] Nunchuk desconectado")
-                b.notify("nunchuk", f"{self.label}: Nunchuk desconectado")
+                b.notify("nunchuk", f"{self.label}: Nunchuk desconectado", player=self)
             else:
                 timeout = self.nunchuk_gone + UNPLUG_GRACE - now
         if self.rumble:
@@ -1332,7 +1342,7 @@ class Player:
                 self.battery_warned.update(low)
                 print(f"[{self.label}] Batería baja del Wiimote: {level} %")
                 b.notify("battery", f"{self.label}: batería baja", f"Queda {level} %. Cambia las pilas pronto.",
-                         urgency="critical" if min(low) == min(BATTERY_LOW) else "normal")
+                         urgency="critical" if min(low) == min(BATTERY_LOW) else "normal", player=self)
         return timeout
 
     def close(self, gone, wait=False):
@@ -1390,6 +1400,7 @@ class Bridge:
         self.combos = parse_combos(cfg["mouse"]["combos"])
         self.rumble_on = cfg["rumble"]
         self.sounds = cfg["sounds"]
+        self.speaker_volume = cfg["speaker_volume"] if cfg["speaker"] else None
         self.notifications = cfg["notifications"]
         self.devices = cfg["devices"]
         owner = self.mouse_owner
@@ -1409,10 +1420,13 @@ class Bridge:
         except FileNotFoundError:
             return False
 
-    def notify(self, event, summary=None, body="", urgency="normal", wait=False):
-        """Aviso en la PC: notificación de escritorio (si está activada para ese evento) y sonido."""
+    def notify(self, event, summary=None, body="", urgency="normal", wait=False, player=None):
+        """Aviso: notificación de escritorio (si está activada para ese evento) y sonido en la
+        PC y, si se activó, también en la bocina de ese Wiimote."""
         if self.notifications.get(event):
             notify_desktop(summary or SOUND_EVENTS[event], body, urgency, event != "battery", wait)
+        if self.sounds.get(event) and self.speaker_volume is not None and player:
+            player.speak(event)
         play_on_pc(self.sounds.get(event), wait)
 
     # --- jugadores --------------------------------------------------------------
@@ -1523,7 +1537,8 @@ class Bridge:
     # --- bucle ------------------------------------------------------------------
     def write_state(self):
         players = [{"id": p.id, "number": p.number, "name": p.label, "profile": p.profile_name,
-                    "pad": p.pad.phys, "mouse": p.mouse_mode, "battery": p.battery_level}
+                    "pad": p.pad.phys, "mouse": p.mouse_mode, "battery": p.battery_level,
+                    "hidraw": wii_speaker.ruta_de(p.group)}
                    for p in sorted(self.players.values(), key=lambda p: p.number)]
         try:
             STATE.parent.mkdir(parents=True, exist_ok=True)
