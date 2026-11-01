@@ -3,7 +3,8 @@
 # Copyright (C) 2026 AlexDev07
 """Graba las capturas y el GIF del README sin Wiimote ni escritorio.
 
-    python3 docs/escena.py        (necesita podman y acceso a /dev/uinput)
+    python3 docs/escena.py          (necesita podman y acceso a /dev/uinput)
+    python3 docs/escena.py --fotos  (solo las capturas, sin apagar el Wiimote que esté en uso)
 
 En la PC crea un Wiimote falso (el de tests/test_bridge.py) y arranca el puente
 real; en un contenedor abre la ventana en una pantalla virtual (Xvfb), lee el
@@ -28,7 +29,8 @@ RUN dnf install -y python3-tkinter python3-evdev xorg-x11-server-Xvfb ffmpeg-fre
         gtk4 libadwaita python3-gobject adwaita-icon-theme adwaita-sans-fonts && dnf clean all
 """
 DURATION = 15  # s de GIF
-STILLS = ("ventana", "ventana-oscura", "perfil", "modo-mouse", "avisos", "teclado")
+STILLS = ("ventana", "perfil", "modo-mouse", "avisos", "experimental", "teclado")
+ACCENT = "#e62d42"  # las capturas van en oscuro con este acento, sea cual sea el del sistema
 # Guion del Wiimote falso: (segundo, acción, argumentos)
 SCRIPT = [
     (0.6, "press", ("A", 0.45)), (1.3, "press", ("B", 0.5)), (2.0, "press", ("Z", 0.45)), (2.7, "press", ("C", 0.4)),
@@ -41,17 +43,32 @@ SCRIPT = [
 
 
 # --- dentro del contenedor --------------------------------------------------------
-def inside():
+def inside(fotos=False):
     sys.path.insert(0, "/src")
     os.environ.update(DISPLAY=":99", GDK_BACKEND="x11", GSK_RENDERER="cairo", NO_AT_BRIDGE="1")
     xvfb = subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1600x1200x24", "-nolisten", "tcp"])
     time.sleep(1)
     import wii_gamepad_adw as ui
-    from gi.repository import Adw, GLib
+    from gi.repository import Adw, Gdk, GLib, Gtk
 
     out = Path("/out")
+    if fotos:  # dos Wiimotes de ejemplo, sin puente
+        run = Path(os.environ["XDG_RUNTIME_DIR"]) / "wii-gamepad"
+        run.mkdir(parents=True, exist_ok=True)
+        players = [{"id": mac, "number": n, "name": f"Jugador {n}", "profile": "Rocket League",
+                    "pad": f"escena/pad{n}", "mouse": False, "battery": battery, "hidraw": None}
+                   for n, mac, battery in ((1, "00:11:22:33:44:55", 80), (2, "66:77:88:99:AA:BB", 60))]
+        (run / "state.json").write_text(json.dumps({"pid": os.getpid(), "players": players}))
     app = ui.App()
     win = None
+
+    def look():
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        css = Gtk.CssProvider()
+        css.load_from_string(f"@define-color accent_bg_color {ACCENT}; @define-color accent_color #ff6b7a;"
+                             f":root {{ --accent-bg-color: {ACCENT}; --accent-color: #ff6b7a; }}")
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
     def geometry():
         wid = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^Wii Gamepad$"],
@@ -91,12 +108,13 @@ def inside():
     def start():
         nonlocal win
         win = app.get_active_window()
+        look()
         win.set_default_size(1100, 640)
         if not win.players():  # el puente aún no publicó al Wiimote
             GLib.timeout_add(300, start)
             return False
         win.select(("player", win.players()[0]["id"]))
-        GLib.timeout_add(1200, record)
+        GLib.timeout_add(1200, stills if fotos else record)
         return False
 
     def record():
@@ -125,11 +143,10 @@ def inside():
               (1000, lambda: shot("perfil")),
               (100, prefs("mouse")), (1000, lambda: shot("modo-mouse")),
               (100, prefs("alerts")), (1000, lambda: shot("avisos")),
+              (100, prefs("experimental")), (1000, lambda: shot("experimental")),
               (100, lambda: win.get_visible_dialog().close()),
-              (100, lambda: (win.select(("player", win.players()[0]["id"])),
-                             Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK))),
-              (1200, lambda: shot("ventana-oscura")),
               (100, keyboard))
+        return False
 
     def keyboard():
         kb = subprocess.Popen([sys.executable, "/src/wii_keyboard.py", "--window"], stdin=subprocess.PIPE)
@@ -173,10 +190,45 @@ def run_script(fake):
             threading.Thread(target={"circle": circle, "gyro": gyro}[action], daemon=True).start()
 
 
+def user_profiles(cfg, wg):
+    """Los perfiles propios, sin los Wiimotes guardados: sus MAC no van en las capturas."""
+    mine = wg.load_config()
+    cfg["profiles"], cfg["active"] = mine["profiles"], mine["active"]
+    cfg["default_profiles_seen"] = mine["default_profiles_seen"]
+
+
+def photos():
+    sys.path.insert(0, str(ROOT))
+    import wii_gamepad as wg
+    import wii_news as wn
+
+    engine = shutil.which("podman") or sys.exit("Necesitas podman")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        cfg_dir, out = tmp / "config" / "wii-gamepad", tmp / "out"
+        cfg_dir.mkdir(parents=True)
+        out.mkdir()
+        (tmp / "config" / "kxkbrc").write_text("[Layout]\nLayoutList=latam\n")
+        cfg = wg.default_config()
+        user_profiles(cfg, wg)
+        cfg["news"]["seen"] = wn.VERSION
+        (cfg_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+        subprocess.run([engine, "run", "--rm", "--security-opt", "label=disable", "-e", "XDG_RUNTIME_DIR=/tmp/run",
+                        "-v", f"{ROOT}:/src:ro", "-v", f"{out}:/out",
+                        "-v", f"{tmp / 'config'}:/home/usuario/.config", "-e", "XDG_CONFIG_HOME=/home/usuario/.config",
+                        "-e", "PYTHONDONTWRITEBYTECODE=1", IMAGE, "python3", "/src/docs/escena.py", "--fotos-dentro"],
+                       check=True, timeout=60)
+        for name in STILLS:
+            shutil.copy(out / f"{name}.png", DOCS / f"{name}.png")
+    print("Listo: " + ", ".join(f"docs/{n}.png" for n in STILLS))
+
+
 def outside():
     sys.path.insert(0, str(ROOT / "tests"))
     import test_bridge as tb
     import wii_gamepad as wg
+    sys.path.insert(0, str(ROOT))
+    import wii_news as wn
 
     engine = shutil.which("podman") or sys.exit("Necesitas podman")
     print("Preparando el contenedor...")
@@ -193,6 +245,8 @@ def outside():
             cfg = wg.default_config()
             cfg["sounds"] = {k: "" for k in cfg["sounds"]}
             cfg["idle_timeout_min"] = 0
+            user_profiles(cfg, wg)
+            cfg["news"]["seen"] = wn.VERSION  # que la bienvenida no tape la ventana
             (cfg_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 
             # Motion Plus quieto desde el principio, para que el giroscopio ya esté calibrado al grabar
@@ -238,4 +292,5 @@ def outside():
 
 
 if __name__ == "__main__":
-    inside() if sys.argv[1:] == ["--dentro"] else outside()
+    {"--dentro": inside, "--fotos-dentro": lambda: inside(fotos=True), "--fotos": photos}.get(
+        next(iter(sys.argv[1:]), ""), outside)()

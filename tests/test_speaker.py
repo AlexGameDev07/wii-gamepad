@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import wii_speaker_test as ws  # noqa: E402
+import wii_gamepad as wg  # noqa: E402
 
 
 class Falso(ws.Wiimote):
@@ -135,6 +136,88 @@ class Mandos(unittest.TestCase):
         w = Falso()
         tiempo = iter((0.0, 0.0, 0.05, 0.1))
         self.assertEqual(ws.reproducir([(w, [b"1", b"2", b"3"])], 0.01, lambda: next(tiempo), lambda s: None), 2)
+
+
+class Avisos(unittest.TestCase):
+    class Jugador:
+        speak = wg.Player.speak
+
+        def __init__(self, grupo):
+            self.group = grupo
+            self.bridge = type("B", (), {"speaker_volume": 100})()
+
+    def test_ruta_del_wiimote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "hidraw/hidraw7").mkdir(parents=True)
+            self.assertEqual(ws.ruta_de(tmp), "/dev/hidraw7")
+        self.assertIsNone(ws.ruta_de("phys:falso"))
+
+    def test_las_melodias_son_de_bloques_completos(self):
+        for evento in ws.MELODIAS:
+            paquetes = ws.paquetes_melodia(evento)
+            self.assertTrue(paquetes)
+            self.assertTrue(all(p[1] == ws.BLOQUE << 3 for p in paquetes), evento)
+
+    def test_cada_aviso_con_jugador_tiene_melodia(self):
+        for evento in wg.SOUND_EVENTS:
+            if evento != "disconnect":  # ya no hay Wiimote donde sonar
+                self.assertIn(evento, ws.MELODIAS)
+
+    def test_cada_sonido_incluido_tiene_su_conversion(self):
+        for sonido in (ROOT / "sonidos").glob("*.ogg"):
+            paquetes = ws.paquetes_sonido(sonido.name)
+            self.assertTrue(paquetes, sonido.name)
+            self.assertLessEqual(len(paquetes), 1.5 / ws.FORMATOS["pcm"][5] + 1)
+            self.assertTrue(all(p[1] == ws.BLOQUE << 3 for p in paquetes))
+
+    def test_elige_melodia_o_sonido_de_la_pc(self):
+        cfg = {"sounds": {"connect": "a.ogg"}, "speaker_sounds": "melodies"}
+        self.assertIsNone(ws.sonido_de(cfg, "connect"))
+        cfg["speaker_sounds"] = "pc"
+        self.assertEqual(ws.sonido_de(cfg, "connect"), "a.ogg")
+
+    def test_un_sonido_sin_conversion_usa_la_melodia(self):
+        self.assertIsNone(ws.paquetes_sonido("mio.mp3"))
+        w = Falso()
+        ws.tocar(w, "recenter", 100, "mio.mp3")
+        self.assertEqual(sum(r[0] == ws.DATA for r in w.enviados), len(ws.paquetes_melodia("recenter")))
+
+    def test_volumen(self):
+        self.assertEqual((ws.volumen_pcm(100), ws.volumen_pcm(50), ws.volumen_pcm(0)), (255, 128, 0))
+
+    def test_tocar_enciende_suena_y_apaga(self):
+        w = Falso()
+        ws.tocar(w, "recenter", 100)
+        self.assertEqual(w.enviados[-2:], [bytes((0x19, 4)), bytes((0x14, 0))])
+        self.assertIn(0x18, [r[0] for r in w.enviados])
+        self.assertIn(255, next(r for r in w.enviados if r[0] == ws.WMEM and r[5] == 7)[6:])
+
+    def test_sin_permiso_avisa_para_sonar_en_la_pc(self):
+        self.assertFalse(ws.sonar("/dev/no-existe", "prueba", 100))
+
+    def test_sin_bocina_no_falla(self):
+        self.assertFalse(self.Jugador("phys:falso").speak("connect"))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(self.Jugador(tmp).speak("connect"))
+
+    def test_los_avisos_suenan_en_la_pc_y_en_la_bocina(self):
+        puente = wg.Bridge.__new__(wg.Bridge)
+        puente.notifications, puente.sounds = {}, {"connect": "a.ogg"}
+        pc, bocina = [], []
+        original, wg.play_on_pc = wg.play_on_pc, lambda *a: pc.append(a)
+        self.addCleanup(setattr, wg, "play_on_pc", original)
+        jugador = type("J", (), {"speak": lambda _s, e: bocina.append(e)})()
+        puente.speaker_volume = None
+        puente.notify("connect", player=jugador)
+        self.assertEqual((len(pc), len(bocina)), (1, 0))
+        puente.speaker_volume = 100
+        puente.notify("connect", player=jugador)
+        self.assertEqual((len(pc), bocina), (2, ["connect"]))
+        puente.notify("connect")  # sin Wiimote, como al desconectarse
+        self.assertEqual((len(pc), len(bocina)), (3, 1))
+        puente.sounds = {"connect": ""}  # «Ninguno» calla los dos
+        puente.notify("connect", player=jugador)
+        self.assertEqual(len(bocina), 1)
 
 
 if __name__ == "__main__":
