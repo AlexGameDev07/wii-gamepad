@@ -443,8 +443,8 @@ class App(tk.Tk):
         f = ttk.Frame(panel, style="Panel.TFrame")
         f.grid(row=1, column=0, columnspan=2, sticky="nsew")
         ttk.Label(f, wraplength=380, justify="left",
-                  text="Los avisos suenan en el Wiimote en lugar de en la PC. Se oye áspero, gasta más pilas y puede "
-                       "cortar la vibración mientras suena. Si la bocina no responde, sigue sonando la PC.").pack(anchor="w")
+                  text="Los avisos suenan en el Wiimote además de en la PC. Se oye áspero, gasta más pilas y puede "
+                       "cortar la vibración mientras suena.").pack(anchor="w")
         on = tk.BooleanVar(value=self.cfg["speaker"])
         volume = tk.IntVar(value=self.cfg["speaker_volume"])
 

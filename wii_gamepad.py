@@ -1418,12 +1418,12 @@ class Bridge:
             return False
 
     def notify(self, event, summary=None, body="", urgency="normal", wait=False, player=None):
-        """Aviso: notificación de escritorio (si está activada para ese evento) y sonido, en la
-        bocina de ese Wiimote si se activó y responde o, si no, en la PC."""
+        """Aviso: notificación de escritorio (si está activada para ese evento) y sonido en la
+        PC y, si se activó, también en la bocina de ese Wiimote."""
         if self.notifications.get(event):
             notify_desktop(summary or SOUND_EVENTS[event], body, urgency, event != "battery", wait)
-        if self.sounds.get(event) and self.speaker_volume is not None and player and player.speak(event):
-            return
+        if self.sounds.get(event) and self.speaker_volume is not None and player:
+            player.speak(event)
         play_on_pc(self.sounds.get(event), wait)
 
     # --- jugadores --------------------------------------------------------------

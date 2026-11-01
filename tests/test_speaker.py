@@ -176,30 +176,29 @@ class Avisos(unittest.TestCase):
     def test_sin_permiso_avisa_para_sonar_en_la_pc(self):
         self.assertFalse(ws.sonar("/dev/no-existe", "prueba", 100))
 
-    def test_el_puente_cae_a_la_pc_si_no_hay_bocina(self):
+    def test_sin_bocina_no_falla(self):
         self.assertFalse(self.Jugador("phys:falso").speak("connect"))
         with tempfile.TemporaryDirectory() as tmp:
             self.assertFalse(self.Jugador(tmp).speak("connect"))
 
-    def test_notificar_elige_bocina_o_pc(self):
+    def test_los_avisos_suenan_en_la_pc_y_en_la_bocina(self):
         puente = wg.Bridge.__new__(wg.Bridge)
         puente.notifications, puente.sounds = {}, {"connect": "a.ogg"}
-        pc = []
+        pc, bocina = [], []
         original, wg.play_on_pc = wg.play_on_pc, lambda *a: pc.append(a)
         self.addCleanup(setattr, wg, "play_on_pc", original)
-        jugador = type("J", (), {"speak": lambda _s, _e: True})()
+        jugador = type("J", (), {"speak": lambda _s, e: bocina.append(e)})()
         puente.speaker_volume = None
         puente.notify("connect", player=jugador)
-        self.assertEqual(len(pc), 1)
+        self.assertEqual((len(pc), len(bocina)), (1, 0))
         puente.speaker_volume = 100
         puente.notify("connect", player=jugador)
-        self.assertEqual(len(pc), 1)
-        jugador.speak = lambda _e: False
+        self.assertEqual((len(pc), bocina), (2, ["connect"]))
+        puente.notify("connect")  # sin Wiimote, como al desconectarse
+        self.assertEqual((len(pc), len(bocina)), (3, 1))
+        puente.sounds = {"connect": ""}  # «Ninguno» calla los dos
         puente.notify("connect", player=jugador)
-        self.assertEqual(len(pc), 2)
-        puente.sounds = {"connect": ""}  # «Ninguno» también calla la bocina
-        jugador.speak = lambda _e: self.fail("no debía sonar")
-        puente.notify("connect", player=jugador)
+        self.assertEqual(len(bocina), 1)
 
 
 if __name__ == "__main__":

@@ -724,8 +724,8 @@ class Preferences(Adw.PreferencesDialog):
         page = Adw.PreferencesPage(title="Experimental", icon_name="applications-science-symbolic",
                                    name="experimental")
         page.add(group(
-            "Bocina del Wiimote", "Los avisos suenan en el Wiimote en lugar de en la PC. Se oye áspero, gasta más "
-            "pilas y puede cortar la vibración mientras suena. Si la bocina no responde, sigue sonando la PC.",
+            "Bocina del Wiimote", "Los avisos suenan en el Wiimote además de en la PC. Se oye áspero, gasta más "
+            "pilas y puede cortar la vibración mientras suena.",
             switch_row("Usar la bocina", cfg["speaker"], set_on),
             scale_row("Volumen", 10, 100, cfg["speaker_volume"], set_volume, "{:.0f} %"),
             button_row("Probar", "Sonar", test, "En el primer Wiimote conectado")))

@@ -13,7 +13,7 @@ VERSION = "1.3"
 RELEASES = [
     {"version": "1.3", "title": "Novedades de Wii Gamepad 1.3", "pages": [
         ("audio-speakers-symbolic", "La bocina del Wiimote",
-         "Ahora los avisos pueden sonar en el propio Wiimote. Es experimental: se activa en Preferencias."),
+         "Ahora los avisos también pueden sonar en el propio Wiimote. Es experimental: se activa en Preferencias."),
         ("input-gaming-symbolic", "Combinaciones en el modo mouse",
          "Alt+Tab, pestañas, cerrar ventanas, copiar y pegar con 2 a 4 botones. Puedes crear las tuyas."),
         ("preferences-system-notifications-symbolic", "Avisos dentro de la app",
