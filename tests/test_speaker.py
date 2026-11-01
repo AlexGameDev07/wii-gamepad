@@ -163,6 +163,25 @@ class Avisos(unittest.TestCase):
             if evento != "disconnect":  # ya no hay Wiimote donde sonar
                 self.assertIn(evento, ws.MELODIAS)
 
+    def test_cada_sonido_incluido_tiene_su_conversion(self):
+        for sonido in (ROOT / "sonidos").glob("*.ogg"):
+            paquetes = ws.paquetes_sonido(sonido.name)
+            self.assertTrue(paquetes, sonido.name)
+            self.assertLessEqual(len(paquetes), 1.5 / ws.FORMATOS["pcm"][5] + 1)
+            self.assertTrue(all(p[1] == ws.BLOQUE << 3 for p in paquetes))
+
+    def test_elige_melodia_o_sonido_de_la_pc(self):
+        cfg = {"sounds": {"connect": "a.ogg"}, "speaker_sounds": "melodies"}
+        self.assertIsNone(ws.sonido_de(cfg, "connect"))
+        cfg["speaker_sounds"] = "pc"
+        self.assertEqual(ws.sonido_de(cfg, "connect"), "a.ogg")
+
+    def test_un_sonido_sin_conversion_usa_la_melodia(self):
+        self.assertIsNone(ws.paquetes_sonido("mio.mp3"))
+        w = Falso()
+        ws.tocar(w, "recenter", 100, "mio.mp3")
+        self.assertEqual(sum(r[0] == ws.DATA for r in w.enviados), len(ws.paquetes_melodia("recenter")))
+
     def test_volumen(self):
         self.assertEqual((ws.volumen_pcm(100), ws.volumen_pcm(50), ws.volumen_pcm(0)), (255, 128, 0))
 

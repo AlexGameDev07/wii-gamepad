@@ -169,7 +169,8 @@ Steam, or keep Steam's default layout and use this app's profiles.
 ## Wiimote speaker (experimental)
 
 Alerts can play on the Wiimote as well as the PC. Turn it on in **Preferencias → Experimental**,
-which also has the volume and a test button; each Wiimote's page has «Probar bocina» too. If you are
+which also has the volume, a test button and the choice between its own melodies and the PC sounds
+adapted to the speaker; each Wiimote's page has «Probar bocina» too. If you are
 updating, run `install.sh` again: it installs the permission this needs.
 
 The sound is rough, uses more battery and may cut rumble while it plays. In our tests, only one of two Wiimotes played sound.

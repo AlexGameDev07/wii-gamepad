@@ -252,7 +252,8 @@ La batería de cada Wiimote se ve en la barra lateral y en su página. Las notif
 ## Bocina del Wiimote (experimental)
 
 Los avisos pueden sonar en el Wiimote además de en la PC. Actívalo en **Preferencias →
-Experimental**, donde también están el volumen y el botón de prueba; cada Wiimote tiene además
+Experimental**, donde también están el volumen, el botón de prueba y si usar melodías propias o
+los mismos sonidos de la PC, adaptados a la bocina; cada Wiimote tiene además
 «Probar bocina» en su página. Si actualizas desde otra versión, ejecuta `install.sh` de nuevo:
 instala el permiso que hace falta.
 

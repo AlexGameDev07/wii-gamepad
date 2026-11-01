@@ -447,9 +447,12 @@ class App(tk.Tk):
                        "cortar la vibración mientras suena.").pack(anchor="w")
         on = tk.BooleanVar(value=self.cfg["speaker"])
         volume = tk.IntVar(value=self.cfg["speaker_volume"])
+        by_label = {v: k for k, v in wg.SPEAKER_SOUNDS.items()}
+        sounds = tk.StringVar(value=wg.SPEAKER_SOUNDS[self.cfg["speaker_sounds"]])
 
         def changed(*_):
             self.cfg["speaker"], self.cfg["speaker_volume"] = on.get(), volume.get()
+            self.cfg["speaker_sounds"] = by_label[sounds.get()]
             self.save()
 
         def test():
@@ -457,12 +460,16 @@ class App(tk.Tk):
             path = state["players"][0].get("hidraw") if state and state["players"] else None
             if not path:
                 self.status.configure(text="El Wiimote no está conectado")
-            elif wg.wii_speaker.sonar(path, "prueba", volume.get()):
+            elif wg.wii_speaker.sonar(path, "prueba", volume.get(), wg.wii_speaker.sonido_de(self.cfg, "connect")):
                 self.status.configure(text="Sonando...")
             else:
                 self.status.configure(text="Sin permiso sobre la bocina: vuelve a ejecutar install.sh")
 
         ttk.Checkbutton(f, text="Usar la bocina", variable=on, command=changed).pack(anchor="w", pady=(8, 0))
+        ttk.Label(f, text="Sonidos").pack(anchor="w", pady=(8, 0))
+        chooser = ttk.Combobox(f, textvariable=sounds, state="readonly", values=list(by_label))
+        chooser.pack(fill="x")
+        chooser.bind("<<ComboboxSelected>>", changed)
         ttk.Label(f, text="Volumen (%)").pack(anchor="w", pady=(8, 0))
         tk.Scale(f, from_=10, to=100, orient="horizontal", variable=volume, bg=PANEL, fg=FG, highlightthickness=0,
                  command=changed).pack(fill="x")

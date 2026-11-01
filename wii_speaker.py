@@ -190,6 +190,7 @@ MELODIAS = {
     "prueba": ((587, 0.14), (698, 0.14), (784, 0.2)),
 }
 ocupados = set()  # rutas que están sonando
+BOCINA = Path(__file__).resolve().parent / "bocina"
 
 
 def ruta_de(grupo):
@@ -198,27 +199,43 @@ def ruta_de(grupo):
     return f"/dev/{nodo.name}" if nodo else None
 
 
+def paquetes_pcm(datos):
+    datos = datos + bytes(-len(datos) % BLOQUE)
+    return [reporte_datos(datos[i:i + BLOQUE]) for i in range(0, len(datos), BLOQUE)]
+
+
 def paquetes_melodia(evento):
-    hz, muestras_bloque = FORMATOS["pcm"][3:5]
     muestras = []
     for frecuencia, segundos in MELODIAS[evento]:
-        muestras += tono((frecuencia,), hz, segundos + 0.05)
-    muestras += [0.0] * (muestras_bloque - len(muestras) % muestras_bloque)
-    datos = pcm(muestras)
-    return [reporte_datos(datos[i:i + BLOQUE]) for i in range(0, len(datos), BLOQUE)]
+        muestras += tono((frecuencia,), FORMATOS["pcm"][3], segundos + 0.05)
+    return paquetes_pcm(pcm(muestras))
+
+
+def sonido_de(cfg, evento):
+    """El sonido de la PC que debe imitar la bocina, o None para su melodía."""
+    return cfg["sounds"].get(evento) if cfg["speaker_sounds"] == "pc" else None
+
+
+def paquetes_sonido(sonido):
+    """Un sonido de la PC convertido por bocina/convertir.py, o None (p. ej. uno del usuario)."""
+    try:
+        return paquetes_pcm((BOCINA / Path(sonido).with_suffix(".s8").name).read_bytes())
+    except OSError:
+        return None
 
 
 def volumen_pcm(porcentaje):
     return max(0, min(255, round(porcentaje * 255 / 100)))
 
 
-def tocar(w, evento, porcentaje):
+def tocar(w, evento, porcentaje, sonido=None):
+    paquetes = (sonido and paquetes_sonido(sonido)) or paquetes_melodia(evento)
     w.encender("pcm", volumen_pcm(porcentaje))
-    reproducir([(w, paquetes_melodia(evento))], FORMATOS["pcm"][5])
+    reproducir([(w, paquetes)], FORMATOS["pcm"][5])
     w.apagar()
 
 
-def sonar(ruta, evento, porcentaje):
+def sonar(ruta, evento, porcentaje, sonido=None):
     """Suena sin detener al que llama. Devuelve False si no se pudo abrir; si esa bocina ya
     está sonando no hace nada. Abrir es lo único que puede fallar por falta de permiso."""
     if ruta in ocupados:
@@ -231,7 +248,7 @@ def sonar(ruta, evento, porcentaje):
 
     def hilo():
         try:
-            tocar(w, evento, porcentaje)
+            tocar(w, evento, porcentaje, sonido)
         except OSError:  # se apagó a medio sonido
             pass
         finally:

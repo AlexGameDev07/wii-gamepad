@@ -165,11 +165,11 @@ def test_rumble(phys):
     return None
 
 
-def test_speaker(player, volume):
+def test_speaker(player, cfg):
     path = (player or {}).get("hidraw")
     if not path:
         return "El Wiimote no está conectado"
-    if not wg.wii_speaker.sonar(path, "prueba", volume):
+    if not wg.wii_speaker.sonar(path, "prueba", cfg["speaker_volume"], wg.wii_speaker.sonido_de(cfg, "connect")):
         return "Sin permiso sobre la bocina: vuelve a ejecutar install.sh"
     return None
 
@@ -647,7 +647,7 @@ class PlayerPage(Adw.NavigationPage):
         self.win.toast(err or "Vibrando…")
 
     def speaker(self):
-        self.win.toast(test_speaker(self.player(), self.win.store.cfg["speaker_volume"]) or "Sonando…")
+        self.win.toast(test_speaker(self.player(), self.win.store.cfg) or "Sonando…")
 
     def power_off(self):
         if not wg.disconnect(self.id):
@@ -713,13 +713,17 @@ class Preferences(Adw.PreferencesDialog):
             cfg["speaker"] = value
             save()
 
+        def set_sounds(value):
+            cfg["speaker_sounds"] = value
+            save()
+
         def set_volume(value):
             cfg["speaker_volume"] = round(value)
             save(True)
 
         def test():
             players = self.win.players()
-            self.win.toast(test_speaker(players[0] if players else None, cfg["speaker_volume"]) or "Sonando…")
+            self.win.toast(test_speaker(players[0] if players else None, cfg) or "Sonando…")
 
         page = Adw.PreferencesPage(title="Experimental", icon_name="applications-science-symbolic",
                                    name="experimental")
@@ -727,6 +731,7 @@ class Preferences(Adw.PreferencesDialog):
             "Bocina del Wiimote", "Los avisos suenan en el Wiimote además de en la PC. Se oye áspero, gasta más "
             "pilas y puede cortar la vibración mientras suena.",
             switch_row("Usar la bocina", cfg["speaker"], set_on),
+            combo_row("Sonidos", wg.SPEAKER_SOUNDS, cfg["speaker_sounds"], set_sounds),
             scale_row("Volumen", 10, 100, cfg["speaker_volume"], set_volume, "{:.0f} %"),
             button_row("Probar", "Sonar", test, "En el primer Wiimote conectado")))
         return page

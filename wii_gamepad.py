@@ -74,6 +74,7 @@ RECENTER_COMBOS = {"none": ((), "Desactivada"), "B+Down": (("B", "Down"), "B + C
 # Combinación que alterna entre mando de juego y mouse: id -> (fuentes, etiqueta)
 MOUSE_COMBOS = {"none": ((), "Desactivada"), "+-": (("+", "-"), "+ y − a la vez"), "1+2": (("1", "2"), "1 y 2 a la vez")}
 # Quién puede pasar al modo mouse cuando hay varios Wiimotes
+SPEAKER_SOUNDS = {"melodies": "Melodías de la bocina", "pc": "Los mismos sonidos de la PC"}
 MOUSE_PLAYERS = {"any": "Cualquiera (uno a la vez)", "p1": "Solo el jugador 1"}
 MOUSE_MOVES = {"stick": "Stick del Nunchuk", "gyro": "Giroscopio (apuntar)", "dpad": "Cruceta"}
 # Acciones del modo mouse: id -> (teclas que se aprietan juntas, etiqueta)
@@ -208,6 +209,7 @@ GLOBAL_OPTIONS = {"idle_timeout_min": 10, "recenter_combo": "B+Down", "rumble": 
                                     "recenter": False, "nunchuk": False, "mouse": False},
                   "mouse_players": "any",
                   "speaker": False, "speaker_volume": 100,  # experimental: los avisos en la bocina del Wiimote
+                  "speaker_sounds": "melodies",
                   "news": {"seen": "", "read": []},  # wii_news.py
                   # Por Wiimote (su MAC): {"name": ..., "profile": ...}; sin perfil usa "active".
                   "devices": {},
@@ -1028,7 +1030,8 @@ class Player:
 
     def speak(self, event):
         path = wii_speaker.ruta_de(self.group)
-        return bool(path) and wii_speaker.sonar(path, event, self.bridge.speaker_volume)
+        return bool(path) and wii_speaker.sonar(path, event, self.bridge.speaker_volume,
+                                                wii_speaker.sonido_de(self.bridge.cfg, event))
 
     def load_profile(self):
         cfg = self.bridge.cfg

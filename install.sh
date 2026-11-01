@@ -215,6 +215,8 @@ install -m 644 "$SRC_DIR/$APP.svg" "$DATA_DIR/"  # icono de la ventana
 rm -rf "$DATA_DIR/sonidos"  # los incluidos se reemplazan; los del usuario están en ~/.config
 mkdir -p "$DATA_DIR/sonidos"
 [ -d "$SRC_DIR/sonidos" ] && cp -f "$SRC_DIR"/sonidos/* "$DATA_DIR/sonidos/" 2>/dev/null
+mkdir -p "$DATA_DIR/bocina"
+cp -f "$SRC_DIR"/bocina/*.s8 "$DATA_DIR/bocina/" 2>/dev/null
 cat > "$BIN_DIR/$APP" <<EOF
 #!/bin/sh
 exec "$PYTHON" "$DATA_DIR/wii_gamepad.py" "\$@"
