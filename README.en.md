@@ -4,7 +4,8 @@
 ![Linux](https://img.shields.io/badge/platform-Linux-informational)
 [![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
-Use a Wii Remote (with or without Nunchuk) as an Xbox 360 controller on Linux: Steam, Proton,
+Use a Wii Remote (with or without Nunchuk, or with a Classic Controller / Classic Pro) as an
+Xbox 360 controller on Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) and any game with controller support.
 
 ![Live Wiimote: buttons, Nunchuk stick, gyro and switching profiles without restarting](docs/demo.gif)
@@ -28,6 +29,7 @@ There are other ways to use a Wiimote on Linux, but none of them bring all of th
 | Mouse mode and on-screen keyboard driven by the Wiimote | ✅ | ⚠️ mouse only | ❌ | ❌ | ❌ |
 | Starts and stops with the Wiimote; saves battery | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Up to 4 Wiimotes at once, each with its own profile | ✅ | ⚠️ one process per Wiimote | — | ✅ | — |
+| Classic Controller and Classic Pro | ✅ | ⚠️ | — | ✅ | ⚠️ |
 | Maintained | ✅ | ❌ abandoned | ⚠️ barely | ✅ | ✅ |
 
 It relies on the kernel's own driver (`hid-wiimote`), so it doesn't reimplement the Wiimote
@@ -87,8 +89,12 @@ Wayland.
 
 The sidebar lists the connected Wiimotes (player number and battery) and the profiles. Each
 Wiimote's page sets its profile and name, tests rumble and shows its virtual controller live;
-each profile's page chooses which Xbox button every Wiimote/Nunchuk button maps to. The window
-adapts to its size, follows the system's light or dark style and is animated; ☰ →
+each profile's page chooses which Xbox button every button maps to, Steam style: the controller
+is drawn with a label on each button; click the label or the button in the drawing to change it.
+**Configurar paso a paso** (step by step) walks through the buttons one at a time, lighting each
+one up in the drawing, and you pick what it does. A switch at the top toggles between the
+Wiimote + Nunchuk drawing and the Classic Controller one. The window adapts to its size (when
+narrow, the profile's buttons become a list), follows the system's light or dark style and is animated; ☰ →
 **Preferencias** has the theme, a switch to turn animations off, alerts and mouse mode.
 
 ![Profile editor](docs/perfil.png)
@@ -118,6 +124,18 @@ anyone can or only player 1.
 | − / + | L3 / R3 | Sprint, crouch, aim… |
 | 1 / 2 | Back / Start | Pause and map: out of the way so you don't hit them by accident |
 | Home | Guide | Steam menu |
+
+## Classic Controller and Classic Pro
+
+Plug a Classic Controller or Classic Controller Pro into the Wiimote and it just works, like
+the Nunchuk: both sticks, the D-pad and every button. The bridge takes it over, so games don't
+see it as a separate controller, and the Wiimote's buttons keep working too.
+
+By default buttons map by position, like an Xbox controller: b / a / y / x (bottom, right,
+left, top) → A / B / X / Y, L / R → LB / RB, ZL / ZR → LT / RT, − / + / Home → Back / Start /
+Guide, and each stick to its stick. To map by letter instead (a = A), change it in the
+profile's Classic drawing. Mouse mode and the button combos (+ and −, recenter) still use the
+Wiimote's buttons.
 
 ## Mouse mode
 
@@ -184,9 +202,9 @@ sudo python3 wii_speaker_test.py
 
 ## Tests
 
-No Wiimote needed: they create a fake Wiimote, Nunchuk and Motion Plus with `uinput` and check
-what comes out of the virtual controller (buttons, sticks, gyro, rumble, live profiles, mouse
-mode, disconnects and two Wiimotes at once). The second one installs the app on 7 distros using containers.
+No Wiimote needed: they create a fake Wiimote, Nunchuk, Motion Plus and Classic Controller with
+`uinput` and check what comes out of the virtual controller (buttons, sticks, gyro, rumble, live
+profiles, mouse mode, disconnects, two Wiimotes at once and the Classic). The second one installs the app on 7 distros using containers.
 
 ```sh
 python3 tests/test_bridge.py   # requires having run install.sh

@@ -25,6 +25,7 @@ from evdev import ecodes as e, ff  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wii_gamepad as wg  # noqa: E402
+import wii_mapper as wm  # noqa: E402
 import wii_news as wn  # noqa: E402
 
 APP_ID = "io.github.alexgamedev07.WiiGamepad"
@@ -421,7 +422,8 @@ class SidebarRow(Gtk.ListBoxRow):
 
 
 class ProfilePage(Adw.NavigationPage):
-    """Editor de un perfil: qué hace cada botón y cómo se usan stick, inclinación y giroscopio."""
+    """Editor de un perfil: qué hace cada botón (sobre el dibujo del mando, o en lista si la
+    ventana es estrecha) y cómo se usan los sticks, la inclinación y el giroscopio."""
 
     def __init__(self, win, name):
         super().__init__(title=name, tag=f"profile:{name}")
@@ -448,37 +450,33 @@ class ProfilePage(Adw.NavigationPage):
         a.set_enabled(len(cfg["profiles"]) > 1)
         self.insert_action_group("profile", actions)
 
-        page = Adw.PreferencesPage()
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24, margin_top=24, margin_bottom=24,
+                          margin_start=12, margin_end=12)
+
+        def narrow(widget):
+            content.append(Adw.Clamp(maximum_size=640, child=widget))
+
         users = [pl["name"] for pl in win.players() if pl.get("profile") == name]
         default = switch_row("Perfil por defecto", cfg["active"] == name, self.set_default,
                              "Lo usan los Wiimotes que no tienen un perfil elegido")
         default.set_sensitive(cfg["active"] != name)
-        page.add(group(None, "Lo está usando: " + ", ".join(users) if users else None, default))
+        narrow(group(None, "Lo está usando: " + ", ".join(users) if users else None, default))
 
-        def target(src):
-            def changed(t):
-                p["buttons"][src] = t
-                win.store.save()
-            return changed
+        # Con un Classic enchufado se abre directamente su dibujo.
+        layout = "classic" if any(pl.get("classic") for pl in win.players()) else win.mapper_layout
+        self.buttons = wm.ButtonEditor(p, win.store.save, layout)
+        self.buttons.on_layout = lambda key: setattr(win, "mapper_layout", key)
+        content.append(Adw.Clamp(maximum_size=1000, child=self.buttons))
 
-        wii = group("Wiimote", "Qué botón del mando Xbox hace cada botón del Wiimote")
-        for src in wg.WIIMOTE_SOURCES:
-            wii.add(combo_row(wg.SOURCES[src][1], wg.TARGETS, p["buttons"].get(src, "none"), target(src)))
-        page.add(wii)
-
-        nun = group("Nunchuk")
-        for src in wg.NUNCHUK_SOURCES:
-            nun.add(combo_row(wg.SOURCES[src][1], wg.TARGETS, p["buttons"].get(src, "none"), target(src)))
-        nun.add(combo_row("Stick", wg.STICK_TARGETS, p["nunchuk_stick"], self.setter("nunchuk_stick")))
-        nun.add(scale_row("Zona muerta", 0, 0.4, p["deadzone"], self.setter("deadzone", delay=True), "{:.0%}",
-                          "Cuánto hay que mover el stick para que cuente"))
-        page.add(nun)
+        narrow(group("Sticks", "Del Nunchuk y del Classic Controller",
+                     scale_row("Zona muerta", 0, 0.4, p["deadzone"], self.setter("deadzone", delay=True), "{:.0%}",
+                               "Cuánto hay que mover el stick para que cuente")))
 
         tilt = group("Inclinación del Wiimote")
         tilt.add(combo_row("Mover", wg.TILT_TARGETS, p["tilt"], self.setter("tilt")))
         tilt.add(scale_row("Sensibilidad", 0.3, 3.0, p["tilt_sensitivity"], self.setter("tilt_sensitivity", True)))
         tilt.add(switch_row("Invertir eje vertical", p["invert_tilt_y"], self.setter("invert_tilt_y")))
-        page.add(tilt)
+        narrow(tilt)
 
         gyro = group("Giroscopio (Motion Plus)",
                      "Se calibra solo al dejar el Wiimote quieto 1 s. En modo Apuntar, apunta al frente y "
@@ -487,11 +485,18 @@ class ProfilePage(Adw.NavigationPage):
         gyro.add(combo_row("Modo", wg.GYRO_MODES, p["gyro_mode"], self.setter("gyro_mode")))
         gyro.add(scale_row("Sensibilidad", 0.3, 3.0, p["gyro_sensitivity"], self.setter("gyro_sensitivity", True)))
         gyro.add(switch_row("Invertir eje vertical", p["invert_gyro_y"], self.setter("invert_gyro_y")))
-        page.add(gyro)
+        narrow(gyro)
 
+        bin_ = Adw.BreakpointBin(width_request=300, height_request=300,
+                                 child=Gtk.ScrolledWindow(child=content, hscrollbar_policy=Gtk.PolicyType.NEVER))
+        # Por debajo de este ancho el dibujo con sus etiquetas no cabe: lista de botones.
+        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 620sp"))
+        bp.connect("apply", lambda _bp: self.buttons.set_narrow(True))
+        bp.connect("unapply", lambda _bp: self.buttons.set_narrow(False))
+        bin_.add_breakpoint(bp)
         view = Adw.ToolbarView()
         view.add_top_bar(header)
-        view.set_content(page)
+        view.set_content(bin_)
         self.set_child(view)
 
     def setter(self, key, delay=False):
@@ -605,7 +610,8 @@ class PlayerPage(Adw.NavigationPage):
         (self.badge.remove_css_class if online else self.badge.add_css_class)("offline")
         mac = self.id if ":" in self.id else ""
         player = f"Jugador {p['number']}" if online else "Desconectado"
-        parts = [x for x in (player if player != name else "", mac) if x]
+        accessory = ("Classic Controller" if p.get("classic") else "Nunchuk" if p.get("nunchuk") else "") if online else ""
+        parts = [x for x in (player if player != name else "", accessory, mac) if x]
         self.subtitle.set_label(" · ".join(parts) or f"Mando Xbox virtual {p['number']}")
         level = p.get("battery") if online else None
         self.battery.get_parent().set_visible(level is not None)
@@ -952,6 +958,7 @@ class Window(Adw.ApplicationWindow):
         self.bridge = None  # el puente que arrancó esta ventana, si alguno
         self.selected = None
         self.page = None
+        self.mapper_layout = "wiimote"  # el último mando elegido en el editor de botones
 
         self.list = Gtk.ListBox(css_classes=["navigation-sidebar"])
         self.list.set_header_func(self.row_header)
@@ -1266,7 +1273,7 @@ class App(Adw.Application):
         GLib.set_application_name("Wii Gamepad")
         Gtk.Window.set_default_icon_name("wii-gamepad")
         css = Gtk.CssProvider()
-        css.load_from_string(CSS)
+        css.load_from_string(CSS + wm.CSS)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         for name, cb, accels in (("preferences", self.show_preferences, ["<Control>comma"]),

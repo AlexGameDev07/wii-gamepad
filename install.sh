@@ -209,7 +209,8 @@ fi
 # --- 5. Programa ----------------------------------------------------------------
 info "Instalando el programa en $DATA_DIR"
 install -m 755 "$SRC_DIR/wii_gamepad.py" "$SRC_DIR/wii_gamepad_config.py" "$SRC_DIR/wii_gamepad_adw.py" \
-    "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$SRC_DIR/wii_speaker.py" "$SRC_DIR/wii_news.py" "$DATA_DIR/"
+    "$SRC_DIR/wii_gamepad_gui.py" "$SRC_DIR/wii_keyboard.py" "$SRC_DIR/wii_speaker.py" "$SRC_DIR/wii_news.py" \
+    "$SRC_DIR/wii_mapper.py" "$DATA_DIR/"
 install -D -m 644 "$SRC_DIR/$APP.svg" "$ICON_FILE"
 install -m 644 "$SRC_DIR/$APP.svg" "$DATA_DIR/"  # icono de la ventana
 rm -rf "$DATA_DIR/sonidos"  # los incluidos se reemplazan; los del usuario están en ~/.config

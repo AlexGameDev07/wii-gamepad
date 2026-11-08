@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 AlexDev07
-"""Wiimote + Nunchuk -> mando virtual Xbox 360 (uinput).
+"""Wiimote + Nunchuk o Classic Controller (Pro) -> mando virtual Xbox 360 (uinput).
 
 Usa el driver del kernel (hid_wiimote) y expone un único mando XInput que
 reconocen Steam/Proton, Rocket League, Roblox (Sober) y casi cualquier juego.
@@ -33,6 +33,7 @@ WIIMOTE = "Nintendo Wii Remote"
 NUNCHUK = "Nintendo Wii Remote Nunchuk"
 ACCEL = "Nintendo Wii Remote Accelerometer"
 MOTIONPLUS = "Nintendo Wii Remote Motion Plus"
+CLASSIC = "Nintendo Wii Remote Classic Controller"  # el driver llama igual al Classic y al Classic Pro
 PAD_NAME = "Microsoft X-Box 360 pad"
 MOUSE_NAME = "Wii Gamepad Mouse"
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wii-gamepad" / "config.json"
@@ -52,6 +53,36 @@ SOURCES = {
 SOURCE_OF = {code: s for s, (code, _) in SOURCES.items()}
 WIIMOTE_SOURCES = ["A", "B", "1", "2", "+", "-", "Home", "Up", "Down", "Left", "Right"]
 NUNCHUK_SOURCES = ["C", "Z"]
+# Classic Controller / Classic Pro. El driver usa los mismos códigos que el Wiimote (BTN_A,
+# KEY_UP...), así que sus botones llevan otro id y se buscan aparte según el nodo que los manda.
+CLASSIC_BUTTONS = {
+    "cA": (e.BTN_A, "a"), "cB": (e.BTN_B, "b"), "cX": (e.BTN_X, "x"), "cY": (e.BTN_Y, "y"),
+    "cL": (e.BTN_TL, "L"), "cR": (e.BTN_TR, "R"), "cZL": (e.BTN_TL2, "ZL"), "cZR": (e.BTN_TR2, "ZR"),
+    "c+": (e.KEY_NEXT, "+"), "c-": (e.KEY_PREVIOUS, "−"), "cHome": (e.BTN_MODE, "Home"),
+    "cUp": (e.KEY_UP, "Cruceta ↑"), "cDown": (e.KEY_DOWN, "Cruceta ↓"),
+    "cLeft": (e.KEY_LEFT, "Cruceta ←"), "cRight": (e.KEY_RIGHT, "Cruceta →"),
+}
+CLASSIC_OF = {code: s for s, (code, _) in CLASSIC_BUTTONS.items()}
+CLASSIC_SOURCES = list(CLASSIC_BUTTONS)
+# Ejes de sus sticks: eje evdev -> (stick, eje 0 = x / 1 = y). En el Classic original HAT3 son
+# los gatillos analógicos L/R; en el Pro no se mueven (sus gatillos son botones).
+CLASSIC_STICK_AXES = {e.ABS_HAT1X: ("l", 0), e.ABS_HAT1Y: ("l", 1), e.ABS_HAT2X: ("r", 0), e.ABS_HAT2Y: ("r", 1)}
+CLASSIC_SPAN = 32  # el driver da sus sticks en unos -30..30
+CLASSIC_REST = 8
+# Por posición, como en un mando Xbox: b (abajo) = A, a (derecha) = B, y (izquierda) = X, x (arriba) = Y.
+CLASSIC_DEFAULTS = {"cB": "A", "cA": "B", "cY": "X", "cX": "Y", "cL": "LB", "cR": "RB", "cZL": "LT", "cZR": "RT",
+                    "c+": "Start", "c-": "Back", "cHome": "Guide",
+                    "cUp": "DUp", "cDown": "DDown", "cLeft": "DLeft", "cRight": "DRight"}
+CLASSIC_STICK_DEFAULTS = {"classic_lstick": "left", "classic_rstick": "right"}
+
+
+def source_label(src):
+    """Nombre de un botón de origen, del Wiimote, el Nunchuk o el Classic."""
+    if src in SOURCES:
+        return SOURCES[src][1]
+    if src in CLASSIC_BUTTONS:
+        return CLASSIC_BUTTONS[src][1]
+    return src
 
 # Destinos en el mando Xbox: id -> etiqueta
 TARGETS = {
@@ -196,7 +227,7 @@ PROFILE_OPTIONS = {"deadzone": 0.10, "tilt_sensitivity": 1.0, "invert_tilt_y": F
 # Avisos en la PC (sonido y notificación de escritorio): evento -> etiqueta.
 SOUND_EVENTS = {"connect": "Wiimote conectado", "disconnect": "Wiimote apagado o desconectado",
                 "battery": "Batería baja del Wiimote",
-                "recenter": "Giroscopio recentrado", "nunchuk": "Nunchuk conectado / desconectado",
+                "recenter": "Giroscopio recentrado", "nunchuk": "Nunchuk o Classic conectado / desconectado",
                 "mouse": "Modo mouse activado / desactivado"}
 SOUND_DIRS = [CONFIG.parent / "sonidos", Path(__file__).resolve().parent / "sonidos"]  # los del usuario primero
 SOUND_EXTS = {".wav", ".mp3", ".ogg", ".oga", ".flac", ".opus"}
@@ -228,8 +259,23 @@ BATTERY_LOW = (20, 10)  # avisa al bajar de cada nivel (%), una vez por conexió
 BATTERY_CHECK = 120  # segundos entre lecturas de la batería (cada una le pide su estado al Wiimote)
 
 
+def complete_profile(p):
+    """Rellena lo que le falte a un perfil (p. ej. uno de antes del Classic Controller)."""
+    for k, v in PROFILE_OPTIONS.items():
+        p.setdefault(k, v)
+    buttons = p.setdefault("buttons", {})
+    p.setdefault("nunchuk_stick", "left")
+    p.setdefault("tilt", "none")
+    p.setdefault("gyro", "none")
+    for k, v in CLASSIC_DEFAULTS.items():
+        buttons.setdefault(k, v)
+    for k, v in CLASSIC_STICK_DEFAULTS.items():
+        p.setdefault(k, v)
+    return p
+
+
 def new_profile():
-    return copy.deepcopy(RECOMMENDED_PROFILE) | PROFILE_OPTIONS
+    return complete_profile(copy.deepcopy(RECOMMENDED_PROFILE))
 
 
 def parse_combos(items):
@@ -265,7 +311,7 @@ def combo_problem(cfg, buttons):
 
 
 def default_config():
-    profiles = {n: p | PROFILE_OPTIONS for n, p in copy.deepcopy(DEFAULT_PROFILES).items()}
+    profiles = {n: complete_profile(p) for n, p in copy.deepcopy(DEFAULT_PROFILES).items()}
     return ({"active": RECOMMENDED} | copy.deepcopy(GLOBAL_OPTIONS)
             | {"profiles": profiles, "default_profiles_seen": list(DEFAULT_PROFILES)})
 
@@ -304,15 +350,10 @@ def load_config(path=CONFIG):
     seen = cfg.setdefault("default_profiles_seen", [n for n in DEFAULT_PROFILES if n != STEAM_INPUT])
     added = [n for n in DEFAULT_PROFILES if n not in seen]
     for name in added:
-        cfg["profiles"].setdefault(name, copy.deepcopy(DEFAULT_PROFILES[name]) | PROFILE_OPTIONS)
+        cfg["profiles"].setdefault(name, copy.deepcopy(DEFAULT_PROFILES[name]))
         seen.append(name)
     for p in cfg["profiles"].values():
-        for k, v in PROFILE_OPTIONS.items():
-            p.setdefault(k, v)
-        p.setdefault("buttons", {})
-        p.setdefault("nunchuk_stick", "left")
-        p.setdefault("tilt", "none")
-        p.setdefault("gyro", "none")
+        complete_profile(p)
     if added:
         save_config(cfg, path)
     return cfg
@@ -994,7 +1035,7 @@ class Player:
         self.mouse_stick = [0.0, 0.0]  # stick del Nunchuk en modo mouse
         self.dpad_since = None  # desde cuándo la cruceta mueve el puntero (para acelerarlo)
         self.stale = set()  # nodos de accesorios quitados que aún no desaparecen
-        self.nunchuk_gone = None  # cuándo se quitó el Nunchuk, si su aviso está pendiente
+        self.unplugged = {}  # accesorio quitado -> cuándo, mientras su aviso está pendiente
         self.motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
         self.battery = self.battery_level = None
         self.battery_warned = set()  # niveles de BATTERY_LOW ya avisados
@@ -1038,7 +1079,7 @@ class Player:
         name = self.bridge.devices.get(self.id, {}).get("profile")
         self.profile_name = name if name in cfg["profiles"] else cfg["active"]
         self.profile = cfg["profiles"][self.profile_name]
-        self.buttons = {SOURCES[s][0]: (s, t) for s, t in self.profile["buttons"].items() if s in SOURCES}
+        self.buttons = {s: t for s, t in self.profile["buttons"].items() if s in SOURCES or s in CLASSIC_BUTTONS}
         self.pad.reset()
         self.make_axes()
         self.chords = Chords(self.bridge.combos, self.mouse_button, self.mouse_combo_action, self.release_switch)
@@ -1049,6 +1090,9 @@ class Player:
         cx, cy = getattr(self, "nunchuk_center", (0, 0))
         self.nunchuk_axes = (Axis(cx, 95, p["deadzone"], limit=NUNCHUK_SPAN),
                              Axis(cy, 95, p["deadzone"], invert=True, limit=NUNCHUK_SPAN))
+        center = getattr(self, "classic_center", {})
+        self.classic_axes = {code: Axis(center.get(code, 0), 24, p["deadzone"], invert=i == 1, limit=CLASSIC_SPAN)
+                             for code, (_, i) in CLASSIC_STICK_AXES.items()}
         span = 100 / max(0.1, p["tilt_sensitivity"])
         self.tilt_axes = (Axis(0, span, 0.15, invert=True), Axis(0, span, 0.15, invert=p["invert_tilt_y"]))
         old = getattr(self, "gyro_axes", {})  # conservar la calibración al recargar
@@ -1062,7 +1106,7 @@ class Player:
         # abiertos, el Wiimote envía datos sin parar y gasta más batería.
         p = self.profile
         gyro = self.bridge.mouse_cfg["move"] == "gyro" if self.mouse_mode else p["gyro"] != "none"
-        return {NUNCHUK} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
+        return {NUNCHUK, CLASSIC} | ({ACCEL} if p["tilt"] != "none" else set()) | ({MOTIONPLUS} if gyro else set())
 
     def attach_extras(self, first=False):
         for name in self.wanted() - self.extras.keys():
@@ -1074,18 +1118,28 @@ class Player:
                     continue
                 self.devices[d.fd] = d
                 self.extras[name] = d
+                self.bridge.state_dirty = True
                 if name == NUNCHUK:
                     # El driver ya centra el stick en 0. Si al conectarlo se estaba moviendo (o
                     # llegó un dato basura al enchufarlo), ese no es el reposo: mejor 0.
                     center = (d.absinfo(e.ABS_HAT0X).value, d.absinfo(e.ABS_HAT0Y).value)
                     self.nunchuk_center = tuple(c if abs(c) <= NUNCHUK_REST else 0 for c in center)
                     self.make_axes()
-                    print(f"[{self.label}] Nunchuk conectado")
+                elif name == CLASSIC:
+                    self.classic_center = {}
+                    for code in CLASSIC_STICK_AXES:
+                        rest = d.absinfo(code).value
+                        self.classic_center[code] = rest if abs(rest) <= CLASSIC_REST else 0
+                    self.make_axes()
+                if name in (NUNCHUK, CLASSIC):
+                    what = "Nunchuk" if name == NUNCHUK else "Classic Controller"
+                    print(f"[{self.label}] {what} conectado")
                     if not first:  # al encender ya suena el aviso del Wiimote
-                        self.bridge.notify("nunchuk", f"{self.label}: Nunchuk conectado", player=self)
+                        self.bridge.notify("nunchuk", f"{self.label}: {what} conectado", player=self)
 
     def detach(self, name, gone):
         d = self.extras.pop(name)
+        self.bridge.state_dirty = True
         self.devices.pop(d.fd, None)
         d.close()
         self.pad.reset()
@@ -1095,10 +1149,12 @@ class Player:
             if self.mouse_mode:
                 self.bridge.mouse.reset()
                 self.chords.reset()
+        elif name == CLASSIC:
+            self.down.difference_update(CLASSIC_SOURCES)
         if gone:
             self.stale.add(d.path)
-            if name == NUNCHUK:
-                self.nunchuk_gone = time.monotonic()
+            if name in (NUNCHUK, CLASSIC):
+                self.unplugged[name] = time.monotonic()
 
     def scan(self):
         present = set(evdev.list_devices())
@@ -1131,7 +1187,14 @@ class Player:
         for ev in events:
             if ev.type == e.EV_KEY:
                 self.last_input = time.monotonic()
-                self.handle_button(ev.code, ev.value)
+                self.handle_button(ev.code, ev.value, classic=dev.name == CLASSIC)
+            elif ev.type == e.EV_ABS and dev.name == CLASSIC and ev.code in CLASSIC_STICK_AXES:
+                stick, i = CLASSIC_STICK_AXES[ev.code]
+                value = self.classic_axes[ev.code].convert(ev.value)
+                if abs(value) > ACTIVITY:
+                    self.last_input = time.monotonic()
+                if not self.mouse_mode:
+                    self.handle_stick(p["classic_" + stick + "stick"], i, value, "classic_" + stick)
             elif ev.type == e.EV_ABS and dev.name == NUNCHUK and ev.code in (e.ABS_HAT0X, e.ABS_HAT0Y):
                 i = ev.code == e.ABS_HAT0Y
                 value = self.nunchuk_axes[i].convert(ev.value)
@@ -1162,9 +1225,14 @@ class Player:
             elif ev.type == e.EV_SYN:
                 self.pad.syn()
 
-    def handle_button(self, code, value):
-        src = SOURCE_OF.get(code)
+    def handle_button(self, code, value, classic=False):
+        src = (CLASSIC_OF if classic else SOURCE_OF).get(code)
         if src is None:
+            return
+        if classic:  # el Classic no entra en las combinaciones ni en el modo mouse
+            self.down.add(src) if value else self.down.discard(src)
+            if not self.mouse_mode and value != 2:
+                self.pad.press(self.buttons.get(src, "none"), src, bool(value))
             return
         b = self.bridge
         self.down.add(src) if value else self.down.discard(src)
@@ -1192,9 +1260,8 @@ class Player:
                 self.chords.press(src, time.monotonic())
             else:
                 self.chords.release(src)
-        elif code in self.buttons:
-            src, target = self.buttons[code]
-            self.pad.press(target, src, bool(value))
+        elif src in self.buttons:
+            self.pad.press(self.buttons[src], src, bool(value))
 
     def mouse_button(self, src, on):
         """La función normal de un botón en modo mouse."""
@@ -1289,26 +1356,27 @@ class Player:
         self.bridge.notify("recenter", f"{self.label}: giroscopio recentrado", player=self)
         print(f"[{self.label}] Giroscopio recentrado")
 
-    def handle_stick(self, mode, axis_id, value):
+    def handle_stick(self, mode, axis_id, value, src="stick"):
         """axis_id: 0 = x, 1 = y; value en -1..1 con y positivo = abajo."""
         if mode in STICK_AXES:
             self.pad.move(STICK_AXES[mode][axis_id], value)
         elif mode == "dpad":
             neg, pos = DIGITAL_AXES[(e.ABS_HAT0X, e.ABS_HAT0Y)[axis_id]]
-            self.pad.press(neg, "stick", value < -0.5)
-            self.pad.press(pos, "stick", value > 0.5)
+            self.pad.press(neg, src, value < -0.5)
+            self.pad.press(pos, src, value > 0.5)
 
     def tick(self, now):
         """Trabajo por tiempo (vibración, apagado, batería...); devuelve en cuántos segundos volver."""
         b = self.bridge
         timeout = math.inf
-        if self.nunchuk_gone is not None:
-            if now - self.nunchuk_gone >= UNPLUG_GRACE:
-                self.nunchuk_gone = None
-                print(f"[{self.label}] Nunchuk desconectado")
-                b.notify("nunchuk", f"{self.label}: Nunchuk desconectado", player=self)
+        for name, since in list(self.unplugged.items()):
+            if now - since >= UNPLUG_GRACE:
+                del self.unplugged[name]
+                what = "Nunchuk" if name == NUNCHUK else "Classic Controller"
+                print(f"[{self.label}] {what} desconectado")
+                b.notify("nunchuk", f"{self.label}: {what} desconectado", player=self)
             else:
-                timeout = self.nunchuk_gone + UNPLUG_GRACE - now
+                timeout = min(timeout, since + UNPLUG_GRACE - now)
         if self.rumble:
             level, ends = self.pad.rumble_level(now)
             timeout = min(timeout, ends, self.rumble.update(level if b.rumble_on else 0.0, now))
@@ -1538,6 +1606,7 @@ class Bridge:
     def write_state(self):
         players = [{"id": p.id, "number": p.number, "name": p.label, "profile": p.profile_name,
                     "pad": p.pad.phys, "mouse": p.mouse_mode, "battery": p.battery_level,
+                    "classic": CLASSIC in p.extras, "nunchuk": NUNCHUK in p.extras,
                     "hidraw": wii_speaker.ruta_de(p.group)}
                    for p in sorted(self.players.values(), key=lambda p: p.number)]
         try:

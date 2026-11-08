@@ -194,7 +194,7 @@ class Puente(unittest.TestCase):
         self.bridge.ignore_focus = lambda: wg.Bridge.ignore_focus(self.bridge)
         self.player = wg.Player.__new__(wg.Player)
         self.player.bridge, self.player.extras = self.bridge, {wg.NUNCHUK: None}
-        self.player.down, self.player.suppressed = set(), set()
+        self.player.down, self.player.suppressed, self.player.unplugged = set(), set(), {}
         self.player.pad = type("Pad", (), {"press": lambda *_: None})()
         self.player.profile = {"buttons": {}}
         self.player.chords = wg.Chords(self.bridge.combos, self.player.mouse_button, self.player.mouse_combo_action,

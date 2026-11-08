@@ -1,5 +1,5 @@
 pkgbase = wii-gamepad
-	pkgdesc = Wii Remote + Nunchuk as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)
+	pkgdesc = Wii Remote + Nunchuk or Classic Controller as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)
 	pkgver = 1.3
 	pkgrel = 1
 	url = https://github.com/AlexGameDev07/wii-gamepad

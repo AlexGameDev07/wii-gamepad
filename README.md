@@ -4,7 +4,8 @@
 ![Linux](https://img.shields.io/badge/plataforma-Linux-informational)
 [![Apóyame en Ko-fi](https://img.shields.io/badge/Ko--fi-ap%C3%B3yame-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
-Usa un Wiimote (con o sin Nunchuk) como mando de Xbox 360 en Linux: Steam, Proton,
+Usa un Wiimote (con o sin Nunchuk, o con un Classic Controller / Classic Pro) como mando de
+Xbox 360 en Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) y cualquier juego con soporte de mando.
 
 ![Wiimote en vivo: botones, stick del Nunchuk, giroscopio y cambio de perfil sin reiniciar](docs/demo.gif)
@@ -28,6 +29,7 @@ Hay otras formas de usar un Wiimote en Linux, pero ninguna junta todo esto:
 | Modo mouse y teclado en pantalla manejados con el Wiimote | ✅ | ⚠️ solo mouse | ❌ | ❌ | ❌ |
 | Arranca y se apaga solo con el Wiimote; ahorra batería | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Hasta 4 Wiimotes a la vez, cada uno con su perfil | ✅ | ⚠️ un proceso por Wiimote | — | ✅ | — |
+| Classic Controller y Classic Pro | ✅ | ⚠️ | — | ✅ | ⚠️ |
 | Mantenido | ✅ | ❌ abandonado | ⚠️ poco | ✅ | ✅ |
 
 Usa el driver oficial del kernel (`hid-wiimote`), así que no reimplementa el protocolo
@@ -90,11 +92,15 @@ Funciona en X11 y Wayland.
 A la izquierda están los Wiimotes conectados (con su número de jugador y su batería) y los
 perfiles. En la página de cada Wiimote eliges su perfil, le pones nombre, pruebas la
 vibración y ves su mando virtual en vivo. En la de cada perfil eliges qué botón de Xbox
-corresponde a cada botón del Wiimote/Nunchuk.
+corresponde a cada botón, como en Steam: el mando aparece dibujado con una etiqueta en cada
+botón; haz clic en la etiqueta o en el botón del dibujo para cambiarlo. **Configurar paso a
+paso** recorre los botones uno por uno, iluminando cada uno en el dibujo, y tú eliges qué
+hace. Arriba cambias entre el dibujo del Wiimote + Nunchuk y el del Classic Controller.
 
 ![Editor de perfiles](docs/perfil.png)
 
-La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega), sigue el tema
+La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega y los botones del
+perfil pasan a ser una lista), sigue el tema
 claro u oscuro del sistema y tiene animaciones. En el menú ☰ → **Preferencias** están el
 tema, un interruptor para quitar las animaciones, los avisos y el modo mouse.
 
@@ -136,6 +142,26 @@ en Preferencias eliges si puede usarlo cualquiera o solo el jugador 1.
 | − / + | L3 / R3 | Correr, agacharse, apuntar… |
 | 1 / 2 | Back / Start | Pausa y mapa: están lejos y no se pulsan sin querer |
 | Home | Guide | Menú de Steam |
+
+## Classic Controller y Classic Pro
+
+Enchufa un Classic Controller o un Classic Controller Pro al Wiimote y funciona solo, como el
+Nunchuk: los dos sticks, la cruceta y todos sus botones. El puente se queda con él, así que
+los juegos no lo ven como un mando aparte. Los botones del Wiimote siguen funcionando a la vez.
+
+Por defecto los botones van por posición, como en un mando Xbox:
+
+| Classic | Xbox |
+|---|---|
+| b (abajo) / a (derecha) / y (izquierda) / x (arriba) | A / B / X / Y |
+| L / R | LB / RB |
+| ZL / ZR | LT / RT |
+| − / + / Home | Back / Start / Guide |
+| Stick izquierdo / derecho | Stick izquierdo / derecho |
+
+Si prefieres que vayan por letra (a = A), cámbialo en el perfil, en el dibujo del Classic.
+Con el Classic, el modo mouse y las combinaciones (+ y −, recentrar) se siguen haciendo con
+los botones del Wiimote.
 
 ## Modo mouse
 
@@ -284,9 +310,9 @@ encendido hace que el Wiimote transmita sin parar y gaste más pila.
 
 ## Pruebas
 
-Sin Wiimote: crean un Wiimote, Nunchuk y Motion Plus falsos con `uinput` y comprueban lo
-que sale por el mando virtual (botones, sticks, giroscopio, vibración, perfiles en vivo,
-modo mouse, desconexiones y dos Wiimotes a la vez). La segunda instala la app en 7 distros con contenedores.
+Sin Wiimote: crean un Wiimote, Nunchuk, Motion Plus y Classic Controller falsos con `uinput`
+y comprueban lo que sale por el mando virtual (botones, sticks, giroscopio, vibración, perfiles
+en vivo, modo mouse, desconexiones, dos Wiimotes a la vez y el Classic). La segunda instala la app en 7 distros con contenedores.
 
 ```sh
 python3 tests/test_bridge.py   # necesita haber ejecutado install.sh

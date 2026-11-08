@@ -7,10 +7,18 @@ Para una versión nueva: sube VERSION y agrega su entrada arriba en RELEASES. Pa
 agrega una entrada a NOTICES con un id que no se haya usado. target dice a dónde lleva «action»:
 "preferences:<página>"; las páginas son general, alerts, mouse y experimental."""
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 # Cada página: (icono simbólico, título, texto)
 RELEASES = [
+    {"version": "1.4", "title": "Novedades de Wii Gamepad 1.4", "pages": [
+        ("input-gaming-symbolic", "Classic Controller y Classic Pro",
+         "Enchúfalo al Wiimote y funciona solo: los dos sticks y todos sus botones, como un mando Xbox."),
+        ("applications-games-symbolic", "Editor de botones nuevo",
+         "El mando aparece dibujado con lo que hace cada botón. Haz clic en uno para cambiarlo."),
+        ("emblem-ok-symbolic", "Configurar paso a paso",
+         "Recorre los botones uno por uno, iluminando cada uno en el dibujo, y tú eliges qué hace."),
+    ]},
     {"version": "1.3", "title": "Novedades de Wii Gamepad 1.3", "pages": [
         ("audio-speakers-symbolic", "La bocina del Wiimote",
          "Ahora los avisos también pueden sonar en el propio Wiimote. Es experimental: se activa en Preferencias."),
