@@ -624,12 +624,13 @@ class ButtonEditor(Gtk.Box):
     """La sección «Botones» del perfil: elegir mando, el dibujo con etiquetas (o una lista si
     la ventana es estrecha) y el asistente paso a paso."""
 
-    def __init__(self, profile, save, layout_key="wiimote"):
+    def __init__(self, profile, save, layout_key="wiimote", pad_factory=None, start_bridge=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.profile, self.save = profile, save
         self.layout = LAYOUTS[layout_key]
         self.narrow = False
         self.on_layout = None  # se llama con el mando elegido
+        self.pad_factory, self.start_bridge = pad_factory, start_bridge
 
         title = Gtk.Label(label="Botones", xalign=0, css_classes=["heading"], hexpand=True)
         self.switcher = Gtk.Box(css_classes=["linked"], valign=Gtk.Align.CENTER)
@@ -639,7 +640,7 @@ class ButtonEditor(Gtk.Box):
             first = first or b
             b.connect("toggled", lambda b, key=key: b.get_active() and self.set_layout(key))
             self.switcher.append(b)
-        setup = Gtk.Button(child=Adw.ButtonContent(icon_name="input-gaming-symbolic", label="Configurar paso a paso"),
+        setup = Gtk.Button(child=Adw.ButtonContent(icon_name="input-gaming-symbolic", label="Configurar con tu mando"),
                            css_classes=["suggested-action"], valign=Gtk.Align.CENTER)
         setup.connect("clicked", lambda _b: self.run_setup())
         top = Gtk.Box(spacing=12)
@@ -686,7 +687,8 @@ class ButtonEditor(Gtk.Box):
             self.hint.set_visible(True)
             extra = (" El B del Wiimote está por detrás (punteado)." if self.layout.key == "wiimote" else
                      " Funciona con el Classic Controller y el Classic Controller Pro enchufados al Wiimote.")
-            self.hint.set_label("Haz clic en un botón del dibujo o en su etiqueta para cambiar lo que hace." + extra)
+            self.hint.set_label("Haz clic en un botón del dibujo o en su etiqueta para cambiar lo que hace, o usa "
+                                "«Configurar con tu mando» y aprieta los botones en tu mando." + extra)
 
     def build(self):
         for name in ("map", "list"):
@@ -732,10 +734,25 @@ class ButtonEditor(Gtk.Box):
         self.save()
 
     def run_setup(self):
-        def changed(spot):
-            self.map.refresh()
-            self.changed(spot)
-        SetupDialog(self.layout, self.profile, changed).present(self.get_root())
+        def changed(src):
+            if src and not src.startswith("stick:"):  # se ve en el dibujo del mando que se usó
+                self.set_layout("classic" if src in wg.CLASSIC_BUTTONS else "wiimote")
+            elif src:
+                self.set_layout("classic" if src.startswith("stick:classic") else "wiimote")
+            self.sync()
+            self.save()
+        dialog = LearnDialog(self.profile, self.pad_factory(), changed, self.start_bridge)
+        dialog.present(self.get_root())
+        return dialog
+
+    def sync(self):
+        """Refleja en el dibujo y en la lista cambios hechos desde fuera (el asistente)."""
+        self.map.refresh()
+        for spot in self.layout.spots:
+            row, keys = self.rows[spot.src]
+            value = spot.get(self.profile)
+            if value in keys and row.get_selected() != keys.index(value):
+                row.set_selected(keys.index(value))
 
 
 def iter_children(widget):
@@ -745,75 +762,247 @@ def iter_children(widget):
         child = child.get_next_sibling()
 
 
-class SetupDialog(Adw.Dialog):
-    """Asistente: ilumina cada botón del mando, uno tras otro, y pregunta qué debe hacer."""
+# Pasos del asistente: (destino Xbox, nombre, qué se ilumina en el dibujo del mando Xbox)
+LEARN_STEPS = [
+    ("A", "A", {"A": 1}), ("B", "B", {"B": 1}), ("X", "X", {"X": 1}), ("Y", "Y", {"Y": 1}),
+    ("LB", "LB (bumper izquierdo)", {"LB": 1}), ("RB", "RB (bumper derecho)", {"RB": 1}),
+    ("LT", "LT (gatillo izquierdo)", {"LT": 1}), ("RT", "RT (gatillo derecho)", {"RT": 1}),
+    ("DUp", "Cruceta ↑", {"DUp": 1}), ("DDown", "Cruceta ↓", {"DDown": 1}),
+    ("DLeft", "Cruceta ←", {"DLeft": 1}), ("DRight", "Cruceta →", {"DRight": 1}),
+    ("Back", "Back / Select", {"Back": 1}), ("Start", "Start", {"Start": 1}), ("Guide", "Guide (Xbox)", {"Guide": 1}),
+    ("L3", "L3 (clic del stick izquierdo)", {"L3": 1}), ("R3", "R3 (clic del stick derecho)", {"R3": 1}),
+    ("left", "Stick izquierdo", {"L3": 0.6, "lx": 0.7, "ly": -0.4}),
+    ("right", "Stick derecho", {"R3": 0.6, "rx": 0.7, "ry": -0.4}),
+]
+STICK_STEPS = {"left", "right"}
+# Botones y sticks de cada mando físico: asignar uno quita ese destino a los demás del mismo mando.
+FAMILIES = (
+    (set(wg.SOURCES), {"nunchuk_stick"}),
+    (set(wg.CLASSIC_BUTTONS), {"classic_lstick", "classic_rstick"}),
+)
 
-    def __init__(self, layout, profile, on_change):
-        super().__init__(title=f"Configurar: {layout.title}", content_width=560)
-        self.layout, self.profile, self.on_change = layout, profile, on_change
-        self.spots = layout.spots
+
+def physical_name(src):
+    """«b» del Classic, «C» del Nunchuk, «2» del Wiimote, «el stick del Nunchuk»..."""
+    if src.startswith("stick:"):
+        return {"nunchuk_stick": "el stick del Nunchuk", "classic_lstick": "el stick izquierdo del Classic",
+                "classic_rstick": "el stick derecho del Classic"}.get(src[6:], src[6:])
+    where = ("del Classic" if src in wg.CLASSIC_BUTTONS else
+             "del Nunchuk" if src in wg.NUNCHUK_SOURCES else "del Wiimote")
+    return f"«{wg.source_label(src)}» {where}"
+
+
+class LearnDialog(Adw.Dialog):
+    """Asistente estilo Steam: ilumina un botón del mando Xbox y espera a que aprietes en tu
+    mando (Wiimote, de lado o no, Nunchuk o Classic) el que quieres para él. Lo detecta el
+    puente, que mientras tanto no manda nada al juego."""
+
+    POLL = 40     # ms entre lecturas de lo que anota el puente
+    SETTLE = 450  # ms que se ve la confirmación antes de pasar al siguiente
+    PULSE = 550   # ms del parpadeo del botón iluminado
+
+    def __init__(self, profile, pad, on_change, start_bridge=None):
+        super().__init__(title="Configurar con tu mando", content_width=520)
+        self.profile, self.pad, self.on_change, self.start_bridge = profile, pad, on_change, start_bridge
+        self.snapshot = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
         self.index = 0
+        self.offset = 0
+        self.learning = False
+        self.busy = False  # mostrando la confirmación de un paso
+        self.done = {}     # paso -> lo que se le asignó
+        self.pulse_on = True
 
-        self.art = ControllerMap(layout, profile, chips=False, max_scale=0.7 if layout.key == "wiimote" else 1.0)
-        self.art.set_halign(Gtk.Align.CENTER)
-        art_box = Gtk.Box(css_classes=["card"], halign=Gtk.Align.FILL)
-        art_box.append(self.art)
-        self.art.set_margin_top(10)
-        self.art.set_margin_bottom(10)
-        self.art_box = art_box
-
-        self.step = Gtk.Label(css_classes=["caption", "dim-label"], xalign=0)
-        self.name = Gtk.Label(css_classes=["setup-title"], xalign=0, wrap=True)
-        self.now = Gtk.Label(css_classes=["dim-label"], xalign=0, wrap=True)
-        self.grid_holder = Adw.Bin()
-        self.progress = Gtk.ProgressBar(css_classes=["osd"])
-
-        back = Gtk.Button(label="Anterior")
-        back.connect("clicked", lambda _b: self.go(self.index - 1))
-        skip = Gtk.Button(label="Dejar como está")
-        skip.connect("clicked", lambda _b: self.advance())
-        self.back = back
-        actions = Gtk.Box(spacing=8, homogeneous=True)
-        actions.append(back)
-        actions.append(skip)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_start=18, margin_end=18,
-                          margin_bottom=18, margin_top=6)
-        for wdg in (self.progress, art_box, self.step, self.name, self.now, self.grid_holder, actions):
-            content.append(wdg)
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vhomogeneous=False)
+        self.stack.add_named(self.build_steps(), "steps")
+        self.stack.add_named(self.build_waiting(), "waiting")
+        self.stack.add_named(self.build_summary(), "summary")
         header = Adw.HeaderBar()
-        view = Adw.ToolbarView(content=Gtk.ScrolledWindow(child=content, hscrollbar_policy=Gtk.PolicyType.NEVER,
-                                                         propagate_natural_height=True))
+        view = Adw.ToolbarView(content=self.stack)
         view.add_top_bar(header)
         self.set_child(view)
-        self.go(0)
 
+        self.connect("closed", lambda _d: self.stop())
+        self.timers = [GLib.timeout_add(self.POLL, self.poll), GLib.timeout_add(self.PULSE, self.blink)]
+        self.check_bridge()
+
+    # --- páginas ---------------------------------------------------------------
+    def build_steps(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_start=18, margin_end=18,
+                      margin_bottom=18, margin_top=6)
+        self.progress = Gtk.ProgressBar()
+        card = Gtk.Box(css_classes=["card"])
+        self.pad.set_margin_top(12)
+        self.pad.set_margin_bottom(12)
+        self.pad.set_margin_start(12)
+        self.pad.set_margin_end(12)
+        card.append(self.pad)
+        self.step = Gtk.Label(css_classes=["caption", "dim-label"], xalign=0)
+        self.name = Gtk.Label(css_classes=["setup-title"], xalign=0, wrap=True)
+        self.hint = Gtk.Label(css_classes=["dim-label"], xalign=0, wrap=True)
+        self.result = Gtk.Label(xalign=0, wrap=True, css_classes=["heading"])
+        back = Gtk.Button(label="Anterior")
+        back.connect("clicked", lambda _b: self.go(self.index - 1))
+        skip = Gtk.Button(label="Saltar")
+        skip.connect("clicked", lambda _b: self.go(self.index + 1))
+        self.back = back
+        actions = Gtk.Box(spacing=8, homogeneous=True, margin_top=6)
+        actions.append(back)
+        actions.append(skip)
+        for w in (self.progress, card, self.step, self.name, self.hint, self.result, actions):
+            box.append(w)
+        return box
+
+    def build_waiting(self):
+        self.wait_page = Adw.StatusPage(icon_name="input-gaming-symbolic")
+        self.wait_button = Gtk.Button(label="Iniciar el puente", css_classes=["pill", "suggested-action"],
+                                      halign=Gtk.Align.CENTER)
+        self.wait_button.connect("clicked", lambda _b: self.start_bridge and self.start_bridge())
+        self.wait_page.set_child(self.wait_button)
+        return self.wait_page
+
+    def build_summary(self):
+        page = Adw.StatusPage(icon_name="emblem-ok-symbolic", title="¡Listo!")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.summary = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(self.summary)
+        buttons = Gtk.Box(spacing=8, homogeneous=True, halign=Gtk.Align.CENTER)
+        undo = Gtk.Button(label="Deshacer todo", css_classes=["pill"])
+        undo.connect("clicked", lambda _b: self.undo())
+        ok = Gtk.Button(label="Terminar", css_classes=["pill", "suggested-action"])
+        ok.connect("clicked", lambda _b: self.close())
+        buttons.append(undo)
+        buttons.append(ok)
+        box.append(buttons)
+        page.set_child(box)
+        return page
+
+    # --- puente -----------------------------------------------------------------
+    def check_bridge(self):
+        """Hace falta el puente con al menos un mando: es quien lee los botones."""
+        if self.stack.get_visible_child_name() == "summary":
+            return  # ya terminó: no volver a detectar
+        state = wg.read_state()
+        if state and state.get("players"):
+            if not self.learning:
+                wg.start_learning()
+                self.learning, self.offset = True, 0
+                if self.stack.get_visible_child_name() != "summary":
+                    self.stack.set_visible_child_name("steps")
+                    self.go(self.index)
+            return
+        if self.learning:
+            wg.stop_learning()
+            self.learning = False
+        running = state is not None
+        self.wait_page.set_title("Enciende tu Wiimote" if running else "El puente está detenido")
+        self.wait_page.set_description("Presiona 1+2. Con el Nunchuk o el Classic enchufados si los vas a usar."
+                                       if running else "Es quien lee tu mando: inícialo para seguir.")
+        self.wait_button.set_visible(not running and self.start_bridge is not None)
+        if self.stack.get_visible_child_name() != "summary":
+            self.stack.set_visible_child_name("waiting")
+
+    def poll(self):
+        self.ticks = getattr(self, "ticks", 0) + 1
+        if self.ticks % 25 == 0 or not self.learning:  # ~1 s
+            self.check_bridge()
+        if not self.learning:
+            return GLib.SOURCE_CONTINUE
+        events, self.offset = wg.read_learned(self.offset)
+        for ev in events:
+            if not self.busy and self.stack.get_visible_child_name() == "steps":
+                self.pressed(ev.get("src", ""))
+        return GLib.SOURCE_CONTINUE
+
+    def stop(self):
+        for t in self.timers:
+            GLib.source_remove(t)
+        self.timers = []
+        if self.learning:
+            wg.stop_learning()
+            self.learning = False
+
+    # --- pasos ------------------------------------------------------------------
     def go(self, index):
         if index < 0:
             return
-        if index >= len(self.spots):
-            self.close()
+        if index >= len(LEARN_STEPS):
+            self.finish()
             return
-        self.index = index
-        spot = self.spots[index]
-        self.art.set_lit(spot.src)
-        n = len(self.spots)
+        self.index, self.busy = index, False
+        target, label, lit = LEARN_STEPS[index]
+        n = len(LEARN_STEPS)
         self.progress.set_fraction(index / n)
         self.step.set_label(f"Paso {index + 1} de {n}")
-        label = spot.label if spot.kind == "stick" else wg.source_label(spot.src)
-        where = "del Nunchuk" if spot.src in wg.NUNCHUK_SOURCES or spot.src == "nunchuk_stick" else (
-            "del Classic" if self.layout.key == "classic" else "del Wiimote")
-        self.name.set_label(f"¿Qué hace «{label}» {where}?")
-        value = spot.get(self.profile)
-        self.now.set_label(f"Ahora: {spot.options().get(value, value)}")
+        if target in STICK_STEPS:
+            self.name.set_label(f"Mueve el stick que quieres usar como {label.lower()}")
+            self.hint.set_label("El del Nunchuk o uno de los del Classic. Si no quieres ninguno, salta este paso.")
+        else:
+            self.name.set_label(f"Aprieta el botón que quieres para {label}")
+            self.hint.set_label("En tu Wiimote (como lo tengas, de lado o no), el Nunchuk o el Classic.")
+        self.result.set_label(f"Ahora: {self.current(target)}")
+        self.result.remove_css_class("success")
         self.back.set_sensitive(index > 0)
-        self.grid_holder.set_child(TargetGrid(spot, value, self.pick))
+        self.pulse_on = True
+        self.pad.light(lit)
 
-    def pick(self, value):
-        spot = self.spots[self.index]
-        spot.set(self.profile, value)
-        self.on_change(spot)
-        self.advance()
+    def current(self, target):
+        """Qué botones físicos hacen hoy ese destino."""
+        if target in STICK_STEPS:
+            keys = [k for _, sticks in FAMILIES for k in sorted(sticks) if self.profile.get(k) == target]
+            names = [physical_name("stick:" + k) for k in keys]
+        else:
+            names = [physical_name(s) for s, t in self.profile["buttons"].items() if t == target]
+        return ", ".join(names) if names else "nada"
 
-    def advance(self):
-        self.go(self.index + 1)
+    def pressed(self, src):
+        target, label, _ = LEARN_STEPS[self.index]
+        stick = src.startswith("stick:")
+        if (target in STICK_STEPS) != stick:
+            self.result.set_label("Eso es un stick: aprieta un botón." if stick else
+                                  "Eso es un botón: mueve un stick (o salta este paso).")
+            return
+        for buttons, sticks in FAMILIES:  # ese destino deja de estar en los demás controles del mismo mando
+            if stick and src[6:] in sticks:
+                for k in sticks:
+                    if self.profile.get(k) == target:
+                        self.profile[k] = "none"
+                self.profile[src[6:]] = target
+            elif not stick and src in buttons:
+                for k in buttons:
+                    if self.profile["buttons"].get(k) == target:
+                        self.profile["buttons"][k] = "none"
+                self.profile["buttons"][src] = target
+        self.done[self.index] = (label, physical_name(src))
+        self.on_change(src)
+        self.busy = True
+        self.result.set_label(f"✓ {physical_name(src)} → {label}")
+        self.result.add_css_class("success")
+        GLib.timeout_add(self.SETTLE, lambda: self.go(self.index + 1) and False)
+
+    def blink(self):
+        if self.stack.get_visible_child_name() == "steps" and not self.busy:
+            self.pulse_on = not self.pulse_on
+            lit = LEARN_STEPS[self.index][2]
+            self.pad.light(lit if self.pulse_on else {k: v * 0.35 for k, v in lit.items()})
+        return GLib.SOURCE_CONTINUE
+
+    def finish(self):
+        if self.learning:
+            wg.stop_learning()
+            self.learning = False
+        while row := self.summary.get_row_at_index(0):
+            self.summary.remove(row)
+        for i in sorted(self.done):
+            label, name = self.done[i]
+            row = Adw.ActionRow(title=label, subtitle=name)
+            self.summary.append(row)
+        if not self.done:
+            self.summary.append(Adw.ActionRow(title="No cambiaste nada"))
+        self.stack.set_visible_child_name("summary")
+
+    def undo(self):
+        self.profile.clear()
+        self.profile.update({k: (dict(v) if isinstance(v, dict) else v) for k, v in self.snapshot.items()})
+        self.done.clear()
+        self.on_change(None)
+        self.close()

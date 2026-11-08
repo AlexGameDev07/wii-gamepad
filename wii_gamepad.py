@@ -40,6 +40,10 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wii
 # Qué Wiimotes hay y qué mando virtual maneja cada uno; lo escribe el puente y lo lee la ventana.
 STATE = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "wii-gamepad" / "state.json"
 MAX_PLAYERS = 4  # los LEDs del Wiimote
+# Asistente de la ventana: mientras exista LEARN (con el pid de la ventana), el puente no manda
+# los botones al juego y anota en LEARN_LOG cada botón apretado o stick movido.
+LEARN = STATE.parent / "learn.json"
+LEARN_LOG = STATE.parent / "learned.jsonl"
 
 # Botones de origen: id -> (código evdev, etiqueta)
 SOURCES = {
@@ -383,6 +387,38 @@ def delete_profile(cfg, name):
     for d in cfg["devices"].values():
         if d.get("profile") == name:
             del d["profile"]
+
+
+def start_learning():
+    """La ventana empieza a detectar botones físicos (ver LEARN)."""
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    LEARN_LOG.write_text("")
+    tmp = LEARN.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"pid": os.getpid()}))
+    tmp.replace(LEARN)
+
+
+def stop_learning():
+    LEARN.unlink(missing_ok=True)
+
+
+def read_learned(offset):
+    """Lo que anotó el puente desde offset: ([{"player", "number", "src"}, ...], nuevo offset).
+    src es un botón (p. ej. "cB") o "stick:<clave del perfil>" (p. ej. "stick:nunchuk_stick")."""
+    try:
+        with open(LEARN_LOG, "rb") as f:
+            f.seek(offset)
+            data = f.read()
+    except OSError:
+        return [], offset
+    end = data.rfind(b"\n") + 1  # solo líneas completas
+    events = []
+    for line in data[:end].splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    return events, offset + end
 
 
 def read_state():
@@ -1036,6 +1072,7 @@ class Player:
         self.dpad_since = None  # desde cuándo la cruceta mueve el puntero (para acelerarlo)
         self.stale = set()  # nodos de accesorios quitados que aún no desaparecen
         self.unplugged = {}  # accesorio quitado -> cuándo, mientras su aviso está pendiente
+        self.learn_axes = {}  # asistente: stick -> [x, y], para avisar una vez por movimiento
         self.motion = {}  # eje del acelerómetro -> último valor que contó como movimiento
         self.battery = self.battery_level = None
         self.battery_warned = set()  # niveles de BATTERY_LOW ya avisados
@@ -1193,14 +1230,18 @@ class Player:
                 value = self.classic_axes[ev.code].convert(ev.value)
                 if abs(value) > ACTIVITY:
                     self.last_input = time.monotonic()
-                if not self.mouse_mode:
+                if self.bridge.learning:
+                    self.learn_stick("classic_" + stick + "stick", i, value)
+                elif not self.mouse_mode:
                     self.handle_stick(p["classic_" + stick + "stick"], i, value, "classic_" + stick)
             elif ev.type == e.EV_ABS and dev.name == NUNCHUK and ev.code in (e.ABS_HAT0X, e.ABS_HAT0Y):
                 i = ev.code == e.ABS_HAT0Y
                 value = self.nunchuk_axes[i].convert(ev.value)
                 if abs(value) > ACTIVITY:
                     self.last_input = time.monotonic()
-                if self.mouse_mode:
+                if self.bridge.learning:
+                    self.learn_stick("nunchuk_stick", i, value)
+                elif self.mouse_mode:
                     self.mouse_stick[i] = value
                 else:
                     self.handle_stick(p["nunchuk_stick"], i, value)
@@ -1209,7 +1250,8 @@ class Player:
                     self.motion[ev.code] = ev.value
                     self.last_input = time.monotonic()
                 # Si el giroscopio usa el mismo stick, manda él.
-                if ev.code in (e.ABS_RX, e.ABS_RY) and p["tilt"] != p["gyro"] and not self.mouse_mode:
+                if ev.code in (e.ABS_RX, e.ABS_RY) and p["tilt"] != p["gyro"] and not self.mouse_mode \
+                        and not self.bridge.learning:
                     i = ev.code == e.ABS_RY
                     self.handle_stick(p["tilt"], i, self.tilt_axes[i].convert(ev.value))
             elif ev.type == e.EV_ABS and dev.name == MOTIONPLUS and ev.code in GYRO_AXES:
@@ -1221,13 +1263,18 @@ class Player:
                 value = self.gyro_axes[ev.code].convert(ev.value, ev.timestamp())
                 if abs(value) > ACTIVITY:
                     self.last_input = time.monotonic()
-                self.handle_stick(p["gyro"], GYRO_AXES[ev.code][0], value)
+                if not self.bridge.learning:
+                    self.handle_stick(p["gyro"], GYRO_AXES[ev.code][0], value)
             elif ev.type == e.EV_SYN:
                 self.pad.syn()
 
     def handle_button(self, code, value, classic=False):
         src = (CLASSIC_OF if classic else SOURCE_OF).get(code)
         if src is None:
+            return
+        if self.bridge.learning:  # el asistente de la ventana: avisar en vez de jugar
+            if value == 1:
+                self.bridge.learned(self, src)
             return
         if classic:  # el Classic no entra en las combinaciones ni en el modo mouse
             self.down.add(src) if value else self.down.discard(src)
@@ -1356,6 +1403,17 @@ class Player:
         self.bridge.notify("recenter", f"{self.label}: giroscopio recentrado", player=self)
         print(f"[{self.label}] Giroscopio recentrado")
 
+    def learn_stick(self, key, axis_id, value):
+        """Asistente: avisa una vez cuando el stick se empuja a fondo y otra al volver a soltarlo."""
+        axes = self.learn_axes.setdefault(key, [0.0, 0.0, False])
+        axes[axis_id] = value
+        far = max(abs(axes[0]), abs(axes[1]))
+        if far > 0.6 and not axes[2]:
+            axes[2] = True
+            self.bridge.learned(self, "stick:" + key)
+        elif far < 0.2:
+            axes[2] = False
+
     def handle_stick(self, mode, axis_id, value, src="stick"):
         """axis_id: 0 = x, 1 = y; value en -1..1 con y positivo = abajo."""
         if mode in STICK_AXES:
@@ -1453,6 +1511,7 @@ class Bridge:
         self.state_dirty = True
         self.full_warned = False
         self.focus_quiet = 0.0  # hasta cuándo no abrir solo el teclado en pantalla
+        self.learning = False  # la ventana está detectando botones (ver LEARN)
         self.kb = wii_keyboard.Keyboard(mouse.tap)
         self.reload()
 
@@ -1481,6 +1540,34 @@ class Bridge:
         if not self.players:
             print(f"Perfil por defecto: {cfg['active']}")
         self.state_dirty = True
+
+    def check_learning(self):
+        """¿Sigue abierto el asistente de la ventana? Si la ventana se cerró sin avisar, se acaba."""
+        try:
+            os.kill(json.loads(LEARN.read_text())["pid"], 0)
+            on = True
+        except FileNotFoundError:
+            on = False
+        except (OSError, ValueError, KeyError, TypeError):
+            on = False
+            LEARN.unlink(missing_ok=True)
+        if on != self.learning:
+            self.learning = on
+            for p in self.players.values():
+                p.pad.reset()
+                p.down.clear()
+                p.suppressed.clear()
+                p.learn_axes.clear()
+            if self.mouse_owner:
+                self.mouse.reset()
+            print("Detectando botones para la ventana" if on else "Fin de la detección de botones")
+
+    def learned(self, player, src):
+        try:
+            with open(LEARN_LOG, "a") as f:
+                f.write(json.dumps({"player": player.id, "number": player.number, "src": src}) + "\n")
+        except OSError:
+            pass
 
     def config_changed(self):
         try:
@@ -1622,7 +1709,7 @@ class Bridge:
         """Atiende a los Wiimotes. Con once, vuelve cuando ya no queda ninguno."""
         deadline = time.monotonic() + ONCE_WAIT
         seen = False
-        last_scan = -math.inf
+        last_scan = last_learn = -math.inf
         timeout = 0.0
         inputs, fast_until = None, 0.0
         while True:
@@ -1646,6 +1733,9 @@ class Bridge:
                     if not seen:
                         print("No apareció el Wiimote; saliendo")
                     return
+            if now - last_learn >= INPUT_CHECK:
+                last_learn = now
+                self.check_learning()
             if self.state_dirty:
                 self.write_state()
             watch_fd = self.kb.watch_fd()

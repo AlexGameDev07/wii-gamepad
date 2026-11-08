@@ -93,9 +93,15 @@ A la izquierda están los Wiimotes conectados (con su número de jugador y su ba
 perfiles. En la página de cada Wiimote eliges su perfil, le pones nombre, pruebas la
 vibración y ves su mando virtual en vivo. En la de cada perfil eliges qué botón de Xbox
 corresponde a cada botón, como en Steam: el mando aparece dibujado con una etiqueta en cada
-botón; haz clic en la etiqueta o en el botón del dibujo para cambiarlo. **Configurar paso a
-paso** recorre los botones uno por uno, iluminando cada uno en el dibujo, y tú eliges qué
-hace. Arriba cambias entre el dibujo del Wiimote + Nunchuk y el del Classic Controller.
+botón; haz clic en la etiqueta o en el botón del dibujo para cambiarlo. Arriba cambias entre
+el dibujo del Wiimote + Nunchuk y el del Classic Controller.
+
+**Configurar con tu mando** funciona como en Steam: se ilumina un botón del mando Xbox y tú
+aprietas en tu mando (el Wiimote, de lado o no, el Nunchuk o el Classic) el que quieres para
+él; también se mueve el stick que quieres para cada stick. Mientras el asistente está abierto,
+tus botones no llegan al juego.
+
+![Configurar con tu mando](docs/asistente.png)
 
 ![Editor de perfiles](docs/perfil.png)
 

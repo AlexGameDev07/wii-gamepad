@@ -91,8 +91,10 @@ The sidebar lists the connected Wiimotes (player number and battery) and the pro
 Wiimote's page sets its profile and name, tests rumble and shows its virtual controller live;
 each profile's page chooses which Xbox button every button maps to, Steam style: the controller
 is drawn with a label on each button; click the label or the button in the drawing to change it.
-**Configurar paso a paso** (step by step) walks through the buttons one at a time, lighting each
-one up in the drawing, and you pick what it does. A switch at the top toggles between the
+**Configurar con tu mando** (set up with your controller) works like Steam: an Xbox button lights
+up and you press the button you want for it on your controller (the Wiimote, sideways or not,
+the Nunchuk or the Classic), and move the stick you want for each stick. While it's open, your
+buttons don't reach the game. A switch at the top toggles between the
 Wiimote + Nunchuk drawing and the Classic Controller one. The window adapts to its size (when
 narrow, the profile's buttons become a list), follows the system's light or dark style and is animated; ☰ →
 **Preferencias** has the theme, a switch to turn animations off, alerts and mouse mode.

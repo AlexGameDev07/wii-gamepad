@@ -220,6 +220,7 @@ class PadView(Gtk.Widget):
         self.target, self.value = {}, {}
         self.dev = self.watch = self.tick = None
         self.last_t = None
+        self.demo = False  # muestra (light) en vez de un mando en vivo: no se atenúa
         self.keymap = {v: k for k, v in wg.KEY_TARGETS.items()}
         self.connect("unrealize", lambda _w: self.detach())
 
@@ -286,6 +287,12 @@ class PadView(Gtk.Widget):
                 t[self.STICK_KEYS[code]] = value / 32767
         else:
             return
+        self.animate()
+
+    def light(self, values):
+        """Modo muestra: ilumina estos controles ({clave: 0..1}, p. ej. {"A": 1, "lx": 0.6})."""
+        self.demo = True
+        self.target = {k: 0.0 for k in self.target} | dict(values)
         self.animate()
 
     # --- animación ---------------------------------------------------------------
@@ -361,7 +368,8 @@ class PadView(Gtk.Widget):
         snapshot.save()
         snapshot.translate(Graphene.Point().init((w - self.W * scale) / 2, (h - self.H * scale) / 2))
         snapshot.scale(scale, scale)
-        if self.dev is None:
+        dim = self.dev is None and not self.demo
+        if dim:
             snapshot.push_opacity(0.45)
 
         for key, (x, y, tw, th) in self.TRIGGERS.items():
@@ -391,7 +399,7 @@ class PadView(Gtk.Widget):
             moved = min(1.0, math.hypot(dx, dy) / 22)
             self.shape(snapshot, cx + dx - 10, cy + dy - 10, 20, 20, 10, mix(muted, accent, moved))
 
-        if self.dev is None:
+        if dim:
             snapshot.pop()
         snapshot.restore()
 
@@ -464,7 +472,8 @@ class ProfilePage(Adw.NavigationPage):
 
         # Con un Classic enchufado se abre directamente su dibujo.
         layout = "classic" if any(pl.get("classic") for pl in win.players()) else win.mapper_layout
-        self.buttons = wm.ButtonEditor(p, win.store.save, layout)
+        self.buttons = wm.ButtonEditor(p, win.store.save, layout, pad_factory=PadView,
+                                       start_bridge=lambda: None if win.state else win.toggle_bridge())
         self.buttons.on_layout = lambda key: setattr(win, "mapper_layout", key)
         content.append(Adw.Clamp(maximum_size=1000, child=self.buttons))
 

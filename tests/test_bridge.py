@@ -554,6 +554,30 @@ def test_classic(tmp):
         except OSError:
             grabbed = True
         check("el puente toma el Classic: los juegos no lo ven como otro mando", grabbed)
+
+        print("Asistente: detectar botones")
+        # El puente de la prueba usa el XDG_RUNTIME_DIR real: la bandera va donde la busca.
+        wg.start_learning()
+        try:
+            check("el puente entra al modo detectar", b.wait_output("Detectando botones", 2), "".join(b.out[-3:]))
+            drain(pad)
+            press("cB")
+            fake.press("2")
+            fake.stick(110, 0)
+            time.sleep(0.4)
+            fake.stick(0, 0)
+            events, _ = wg.read_learned(0)
+            srcs = [ev["src"] for ev in events]
+            check("anota el b del Classic, el 2 del Wiimote y el stick del Nunchuk",
+                  srcs == ["cB", "2", "stick:nunchuk_stick"], str(srcs))
+            check("mientras detecta, nada llega al juego", wait_event(pad, lambda ev: ev.type in (e.EV_KEY,) or
+                                                                  (ev.type == e.EV_ABS and ev.value), 0.3) is None)
+        finally:
+            wg.stop_learning()
+        check("al cerrar el asistente vuelve a jugar", b.wait_output("Fin de la detección", 2))
+        drain(pad)
+        press("cB")
+        check("y el b del Classic vuelve a ser A", wait_event(pad, key(e.BTN_A)) is not None)
         classic.close()
         check("quitar el Classic no desconecta el Wiimote",
               b.wait_output("Classic Controller desconectado", 1 + wg.UNPLUG_GRACE + 1) and b.proc.poll() is None)

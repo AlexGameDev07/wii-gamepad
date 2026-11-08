@@ -190,6 +190,7 @@ class Puente(unittest.TestCase):
         self.bridge = type("B", (), dict(mouse=mouse, mouse_cfg=cfg, kb=self.kb, combo=(), mouse_combo=("+", "-"),
                                          combos=wg.parse_combos(cfg["combos"])))()
         self.bridge.toggle_mouse = lambda _p: None
+        self.bridge.learning = False
         self.bridge.focus_quiet = 0.0
         self.bridge.ignore_focus = lambda: wg.Bridge.ignore_focus(self.bridge)
         self.player = wg.Player.__new__(wg.Player)

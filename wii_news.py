@@ -16,8 +16,8 @@ RELEASES = [
          "Enchúfalo al Wiimote y funciona solo: los dos sticks y todos sus botones, como un mando Xbox."),
         ("applications-games-symbolic", "Editor de botones nuevo",
          "El mando aparece dibujado con lo que hace cada botón. Haz clic en uno para cambiarlo."),
-        ("emblem-ok-symbolic", "Configurar paso a paso",
-         "Recorre los botones uno por uno, iluminando cada uno en el dibujo, y tú eliges qué hace."),
+        ("emblem-ok-symbolic", "Configurar con tu mando",
+         "Se ilumina un botón del mando Xbox y aprietas en tu mando el que quieres para él, como en Steam."),
     ]},
     {"version": "1.3", "title": "Novedades de Wii Gamepad 1.3", "pages": [
         ("audio-speakers-symbolic", "La bocina del Wiimote",
