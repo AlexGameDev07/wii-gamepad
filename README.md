@@ -166,8 +166,13 @@ Por defecto los botones van por posición, como en un mando Xbox:
 | Stick izquierdo / derecho | Stick izquierdo / derecho |
 
 Si prefieres que vayan por letra (a = A), cámbialo en el perfil, en el dibujo del Classic.
-Con el Classic, el modo mouse y las combinaciones (+ y −, recentrar) se siguen haciendo con
-los botones del Wiimote.
+
+**Modo mouse con el Classic:** + y − a la vez lo activan y lo quitan, como en el Wiimote. El
+stick izquierdo mueve el puntero y cada botón hace lo mismo que su equivalente del Wiimote o
+el Nunchuk (con las acciones y combinaciones que tengas en Preferencias): b = A (clic),
+a = B (borrar), ZR = Z (clic derecho), ZL = C (Enter y modificador de las combinaciones),
+L / R = 1 / 2 (Esc / teclado en pantalla), cruceta = cruceta (scroll) y Home = Home. Recentrar
+el giroscopio sigue siendo con el Wiimote.
 
 ## Modo mouse
 

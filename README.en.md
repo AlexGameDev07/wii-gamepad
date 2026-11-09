@@ -136,8 +136,13 @@ see it as a separate controller, and the Wiimote's buttons keep working too.
 By default buttons map by position, like an Xbox controller: b / a / y / x (bottom, right,
 left, top) → A / B / X / Y, L / R → LB / RB, ZL / ZR → LT / RT, − / + / Home → Back / Start /
 Guide, and each stick to its stick. To map by letter instead (a = A), change it in the
-profile's Classic drawing. Mouse mode and the button combos (+ and −, recenter) still use the
-Wiimote's buttons.
+profile's Classic drawing.
+
+**Mouse mode with the Classic:** + and − together toggle it, like on the Wiimote. The left stick
+moves the pointer and each button does what its Wiimote/Nunchuk counterpart does (with your
+actions and combos from Preferences): b = A (click), a = B (backspace), ZR = Z (right click),
+ZL = C (Enter and the combo modifier), L / R = 1 / 2 (Esc / on-screen keyboard), D-pad = D-pad
+(scroll), Home = Home. Gyro recentering is still done on the Wiimote.
 
 ## Mouse mode
 

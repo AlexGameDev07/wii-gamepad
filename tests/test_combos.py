@@ -321,5 +321,52 @@ class Configuracion(unittest.TestCase):
         self.assertEqual(wg.combo_label(["Right", "C"]), "Cruceta → + C")
 
 
+
+class ClassicMouse(unittest.TestCase):
+    """El Classic Controller: jugando va a su destino; + y − cambian al modo mouse, donde hace de Wiimote."""
+
+    def setUp(self):
+        Puente.setUp(self)  # el mismo jugador falso, sin repetir las pruebas de Puente
+        self.pressed = []
+        self.player.pad = type("Pad", (), {"press": lambda _s, t, src, on: self.pressed.append((t, src, on))})()
+        self.player.buttons = dict(wg.CLASSIC_DEFAULTS)
+        self.bridge.mouse_owner = None
+        self.bridge.toggle_mouse = lambda p: setattr(self.bridge, "mouse_owner", None if self.bridge.mouse_owner else p)
+
+    def c(self, src, value):
+        self.player.handle_button(wg.CLASSIC_BUTTONS[src][0], value, classic=True)
+
+    def combo(self):
+        self.c("c+", 1), self.c("c-", 1), self.c("c+", 0), self.c("c-", 0)
+
+    def test_jugando_va_a_su_destino(self):
+        self.c("cB", 1)
+        self.assertEqual(self.pressed, [("A", "cB", True)])
+
+    def test_mas_y_menos_entran_y_salen_del_modo_mouse(self):
+        self.combo()
+        self.assertIs(self.bridge.mouse_owner, self.player)
+        self.assertNotIn(("Back", "c-", True), self.pressed)  # la combinación no llega al juego
+        self.c("cB", 1), self.c("cB", 0)  # b hace de A: clic izquierdo
+        self.assertEqual(self.log, [(e.BTN_LEFT, 1), (e.BTN_LEFT, 0)])
+        self.combo()
+        self.assertIsNone(self.bridge.mouse_owner)
+        self.pressed.clear()
+        self.c("c+", 1)  # no quedó tragado
+        self.assertEqual(self.pressed, [("Start", "c+", True)])
+        self.assertEqual(self.player.suppressed, set())
+
+    def test_zl_es_modificador_como_c(self):
+        self.bridge.mouse_owner = self.player
+        self.c("cZL", 1), self.c("cRight", 1), self.c("cRight", 0), self.c("cZL", 0)  # C + → = Alt+Tab
+        self.assertEqual(self.log[0], (e.KEY_LEFTALT, 1))
+        self.assertIn((e.KEY_TAB, 1), self.log)
+
+    def test_su_stick_mueve_el_puntero(self):
+        self.bridge.mouse_owner = self.player
+        self.player.extras = {wg.CLASSIC: None}
+        self.assertFalse(self.player.dpad_moves())  # con el Classic, el stick manda; la cruceta hace scroll
+
+
 if __name__ == "__main__":
     unittest.main(buffer=True)

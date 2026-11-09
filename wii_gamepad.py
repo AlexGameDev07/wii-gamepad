@@ -78,6 +78,12 @@ CLASSIC_DEFAULTS = {"cB": "A", "cA": "B", "cY": "X", "cX": "Y", "cL": "LB", "cR"
                     "c+": "Start", "c-": "Back", "cHome": "Guide",
                     "cUp": "DUp", "cDown": "DDown", "cLeft": "DLeft", "cRight": "DRight"}
 CLASSIC_STICK_DEFAULTS = {"classic_lstick": "left", "classic_rstick": "right"}
+# En modo mouse (y para la combinación que lo activa) el Classic hace de Wiimote + Nunchuk:
+# cada botón se comporta como este, con sus acciones y combinaciones. ZL/ZR = C/Z, los
+# modificadores. Su stick izquierdo mueve el puntero como el del Nunchuk.
+CLASSIC_MOUSE_ALIAS = {"cB": "A", "cA": "B", "cZL": "C", "cZR": "Z", "cL": "1", "cR": "2",
+                       "c+": "+", "c-": "-", "cHome": "Home",
+                       "cUp": "Up", "cDown": "Down", "cLeft": "Left", "cRight": "Right"}
 
 
 def source_label(src):
@@ -111,7 +117,7 @@ MOUSE_COMBOS = {"none": ((), "Desactivada"), "+-": (("+", "-"), "+ y − a la ve
 # Quién puede pasar al modo mouse cuando hay varios Wiimotes
 SPEAKER_SOUNDS = {"melodies": "Melodías de la bocina", "pc": "Los mismos sonidos de la PC"}
 MOUSE_PLAYERS = {"any": "Cualquiera (uno a la vez)", "p1": "Solo el jugador 1"}
-MOUSE_MOVES = {"stick": "Stick del Nunchuk", "gyro": "Giroscopio (apuntar)", "dpad": "Cruceta"}
+MOUSE_MOVES = {"stick": "Stick (Nunchuk o Classic)", "gyro": "Giroscopio (apuntar)", "dpad": "Cruceta"}
 # Acciones del modo mouse: id -> (teclas que se aprietan juntas, etiqueta)
 MOUSE_ACTIONS = {
     "none": ((), "— Nada —"),
@@ -1188,6 +1194,12 @@ class Player:
                 self.chords.reset()
         elif name == CLASSIC:
             self.down.difference_update(CLASSIC_SOURCES)
+            self.suppressed.difference_update(CLASSIC_SOURCES)
+            if self.mouse_mode:
+                self.mouse_stick = [0.0, 0.0]
+                self.down.difference_update(CLASSIC_MOUSE_ALIAS.values())
+                self.bridge.mouse.reset()
+                self.chords.reset()
         if gone:
             self.stale.add(d.path)
             if name in (NUNCHUK, CLASSIC):
@@ -1232,7 +1244,10 @@ class Player:
                     self.last_input = time.monotonic()
                 if self.bridge.learning:
                     self.learn_stick("classic_" + stick + "stick", i, value)
-                elif not self.mouse_mode:
+                elif self.mouse_mode:
+                    if stick == "l":  # el stick izquierdo mueve el puntero
+                        self.mouse_stick[i] = value
+                else:
                     self.handle_stick(p["classic_" + stick + "stick"], i, value, "classic_" + stick)
             elif ev.type == e.EV_ABS and dev.name == NUNCHUK and ev.code in (e.ABS_HAT0X, e.ABS_HAT0Y):
                 i = ev.code == e.ABS_HAT0Y
@@ -1276,10 +1291,8 @@ class Player:
             if value == 1:
                 self.bridge.learned(self, src)
             return
-        if classic:  # el Classic no entra en las combinaciones ni en el modo mouse
-            self.down.add(src) if value else self.down.discard(src)
-            if not self.mouse_mode and value != 2:
-                self.pad.press(self.buttons.get(src, "none"), src, bool(value))
+        if classic:
+            self.handle_classic(src, value)
             return
         b = self.bridge
         self.down.add(src) if value else self.down.discard(src)
@@ -1309,6 +1322,40 @@ class Player:
                 self.chords.release(src)
         elif src in self.buttons:
             self.pad.press(self.buttons[src], src, bool(value))
+
+    def handle_classic(self, src, value):
+        """Un botón del Classic. En modo mouse hace de su botón equivalente del Wiimote/Nunchuk;
+        jugando, va a su destino del perfil, salvo si completa la combinación del modo mouse."""
+        b = self.bridge
+        alias = CLASSIC_MOUSE_ALIAS.get(src)
+        if self.mouse_mode:
+            if src in self.suppressed:  # la combinación que acaba de activar el modo mouse
+                if not value:
+                    self.suppressed.discard(src)
+                    self.down.discard(src)
+                return
+            if alias:
+                self.handle_button(SOURCES[alias][0], value)
+            return
+        self.down.add(src) if value else self.down.discard(src)
+        if not value and alias:  # lo que dejó la combinación al salir del modo mouse
+            self.suppressed.discard(alias)
+            self.down.discard(alias)
+        if src in self.suppressed:
+            if not value:
+                self.suppressed.discard(src)
+            return
+        if value == 1 and b.mouse_combo:
+            held = {CLASSIC_MOUSE_ALIAS.get(s) for s in self.down if s in CLASSIC_BUTTONS}
+            if held.issuperset(b.mouse_combo):
+                used = {s for s in self.down if CLASSIC_MOUSE_ALIAS.get(s) in b.mouse_combo}
+                for s in used:
+                    self.pad.press(self.buttons.get(s, "none"), s, False)
+                self.suppressed.update(used)
+                b.toggle_mouse(self)
+                return
+        if value != 2:
+            self.pad.press(self.buttons.get(src, "none"), src, bool(value))
 
     def mouse_button(self, src, on):
         """La función normal de un botón en modo mouse."""
@@ -1358,7 +1405,9 @@ class Player:
         """En modo mouse, la cruceta mueve el puntero si se eligió así o si falta el
         Nunchuk / Motion Plus elegido para moverlo."""
         move = self.bridge.mouse_cfg["move"]
-        return move == "dpad" or {"stick": NUNCHUK, "gyro": MOTIONPLUS}.get(move) not in self.extras
+        if move == "stick":
+            return NUNCHUK not in self.extras and CLASSIC not in self.extras
+        return move == "dpad" or MOTIONPLUS not in self.extras
 
     def mouse_velocity(self, now):
         """Velocidad del puntero (px/s) según el stick o la cruceta; el giroscopio lo mueve aparte."""

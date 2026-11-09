@@ -13,7 +13,7 @@ VERSION = "1.4"
 RELEASES = [
     {"version": "1.4", "title": "Novedades de Wii Gamepad 1.4", "pages": [
         ("input-gaming-symbolic", "Classic Controller y Classic Pro",
-         "Enchúfalo al Wiimote y funciona solo: los dos sticks y todos sus botones, como un mando Xbox."),
+         "Enchúfalo al Wiimote y funciona solo: los dos sticks, todos sus botones y también el modo mouse."),
         ("applications-games-symbolic", "Editor de botones nuevo",
          "El mando aparece dibujado con lo que hace cada botón. Haz clic en uno para cambiarlo."),
         ("emblem-ok-symbolic", "Configurar con tu mando",

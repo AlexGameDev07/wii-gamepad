@@ -578,6 +578,26 @@ def test_classic(tmp):
         drain(pad)
         press("cB")
         check("y el b del Classic vuelve a ser A", wait_event(pad, key(e.BTN_A)) is not None)
+
+        print("Classic en modo mouse")
+
+        def combo(*srcs):
+            for value in (1, 0):
+                for src in srcs:
+                    classic.write(e.EV_KEY, wg.CLASSIC_BUTTONS[src][0], value)
+                classic.syn()
+                time.sleep(0.1)
+
+        combo("c+", "c-")
+        check("+ y − del Classic a la vez -> modo mouse", b.wait_output("Modo mouse", 2), "".join(b.out[-3:]))
+        drain(pad)
+        press("cL")  # hace de 1 (Esc): no toca el escritorio de forma visible
+        check("en modo mouse sus botones ya no llegan al mando", wait_event(pad, key(e.BTN_TL), 0.5) is None)
+        combo("c+", "c-")
+        check("otra vez + y − del Classic -> vuelve a ser mando", b.wait_output("Modo mando de juego", 2))
+        drain(pad)
+        press("c+")
+        check("y su + vuelve a ser Start (no quedó tragado)", wait_event(pad, key(e.BTN_START)) is not None)
         classic.close()
         check("quitar el Classic no desconecta el Wiimote",
               b.wait_output("Classic Controller desconectado", 1 + wg.UNPLUG_GRACE + 1) and b.proc.poll() is None)
