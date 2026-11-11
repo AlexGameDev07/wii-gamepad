@@ -1,6 +1,6 @@
 # Maintainer: AlexDev07 <alekeymurcia at gmail dot com>
 pkgname=wii-gamepad
-pkgver=1.3
+pkgver=1.4
 pkgrel=1
 pkgdesc="Wii Remote + Nunchuk or Classic Controller as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)"
 arch=('any')
@@ -15,7 +15,7 @@ optdepends=('at-spi2-core: on-screen keyboard opens by itself in text fields'
             'libpulse: sounds (paplay)')
 install=wii-gamepad.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('c9f545910612617e0fad9e5d2e7b8e83600319710db70382137fa4384eed46e9')
+sha256sums=('3f881d41fd6a52f3c56c86f94f5bcb1ce58fceb5eb0f68c930443bc52e50bfb8')
 
 package() {
     cd "$pkgname-$pkgver"
