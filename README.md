@@ -207,13 +207,15 @@ Con el Nunchuk puesto, mantén C o Z y pulsa otro botón:
 | Z + A / C + A | Copiar / pegar |
 | C + Z | Reproducir / pausa |
 
-Puedes crear las tuyas, de 2 a 4 botones, en **Preferencias → Modo mouse → Combinaciones**. Si C o Z
+Puedes crear las tuyas, de 2 a 4 botones, en **Modo mouse → Combinaciones** (en la barra lateral). Si C o Z
 están en una combinación, su función normal actúa al soltarlos. Dos botones del Wiimote sin C ni Z
 se aprietan casi a la vez, y esos botones tardan 0,15 s más en actuar solos.
 
-Todo se cambia en **Preferencias → Modo mouse**: la combinación, cada botón, la velocidad y con qué se
-mueve el puntero (stick, giroscopio o cruceta; el giroscopio tiene casillas para invertir
-cada eje). Sin Nunchuk, la cruceta mueve el puntero.
+Todo se cambia en la página **Modo mouse** de la barra lateral, sobre el dibujo de tu mando: la
+combinación, cada botón, la velocidad y con qué se mueve el puntero (stick, giroscopio o cruceta; el
+giroscopio tiene casillas para invertir cada eje). Sin Nunchuk, la cruceta mueve el puntero. Arriba
+eliges Wiimote solo, Wiimote + Nunchuk o Classic Controller (se elige solo según lo enchufado) y cada
+botón y combinación se nombra como en ese mando: con el Classic, el clic izquierdo es su b, no la B.
 
 ### Teclado en pantalla
 

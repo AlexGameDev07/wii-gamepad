@@ -97,7 +97,8 @@ the Nunchuk or the Classic), and move the stick you want for each stick. While i
 buttons don't reach the game. A switch at the top toggles between the
 Wiimote + Nunchuk drawing and the Classic Controller one. The window adapts to its size (when
 narrow, the profile's buttons become a list), follows the system's light or dark style and is animated; ☰ →
-**Preferencias** has the theme, a switch to turn animations off, alerts and mouse mode.
+**Preferencias** has the theme, a switch to turn animations off and alerts. Mouse mode has its own
+page in the sidebar.
 
 ![Profile editor](docs/perfil.png)
 
@@ -154,10 +155,13 @@ pointer, A/Z click, the D-pad scrolls and goes back/forward, and 2 opens the on-
 Button combinations: with the Nunchuk attached, hold C or Z and press another button. C + D-pad → / ←
 switches windows (keep holding C and repeat), Z + D-pad → / ← switches tabs, C + B closes the window,
 Z + B closes the tab, and C + Z + B closes the browser window. Create your own with 2 to 4 buttons in
-**Preferencias → Modo mouse → Combinaciones**. When C or Z belongs to a combination, its normal function
+**Modo mouse → Combinaciones** (in the sidebar). When C or Z belongs to a combination, its normal function
 runs on release.
 
-Everything is configurable in **Preferencias → Modo mouse**.
+Everything is configurable on the **Modo mouse** page in the sidebar, over a drawing of your
+controller. A switch at the top picks Wiimote alone, Wiimote + Nunchuk or Classic Controller (it
+follows what's plugged in), and every button and combination is named as on that controller: on the
+Classic, left click is its b button, not B.
 
 ### On-screen keyboard
 

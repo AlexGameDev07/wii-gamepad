@@ -320,6 +320,24 @@ class Configuracion(unittest.TestCase):
     def test_etiqueta(self):
         self.assertEqual(wg.combo_label(["Right", "C"]), "Cruceta → + C")
 
+    def test_etiquetas_con_el_classic(self):
+        """En la ventana, cada botón se nombra como en el mando elegido: el A del Wiimote es la b del Classic."""
+        self.assertEqual(wg.combo_label(["Right", "C"], "classic"), "Cruceta → + ZL")
+        self.assertEqual(wg.combo_label(["Z", "B"], "classic"), "a + ZR")
+        self.assertEqual(wg.mouse_button_label("A", "classic"), "b")
+        self.assertEqual(wg.mouse_toggle_label("1+2", "classic"), "L y R a la vez")
+        self.assertEqual(wg.mouse_toggle_label("+-", "wiimote"), "+ y − a la vez")
+        self.assertEqual(wg.mouse_toggle_label("none", "classic"), "Desactivada")
+        # Cada botón del Wiimote/Nunchuk tiene su equivalente en el Classic, y al revés.
+        self.assertEqual(set(wg.CLASSIC_FOR), set(wg.WIIMOTE_SOURCES + wg.NUNCHUK_SOURCES))
+
+    def test_mando_de_cada_jugador(self):
+        self.assertEqual(wg.mouse_pad_of({"classic": True, "nunchuk": False}), "classic")
+        self.assertEqual(wg.mouse_pad_of({"nunchuk": True}), "nunchuk")
+        self.assertEqual(wg.mouse_pad_of({}), "wiimote")
+        self.assertFalse(wg.mouse_pad_has("C", "wiimote"))
+        self.assertTrue(wg.mouse_pad_has("C", "classic"))
+
 
 
 class ClassicMouse(unittest.TestCase):

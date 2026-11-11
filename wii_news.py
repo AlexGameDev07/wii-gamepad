@@ -5,7 +5,7 @@
 
 Para una versión nueva: sube VERSION y agrega su entrada arriba en RELEASES. Para un aviso,
 agrega una entrada a NOTICES con un id que no se haya usado. target dice a dónde lleva «action»:
-"preferences:<página>"; las páginas son general, alerts, mouse y experimental."""
+"preferences:<página>" (general, alerts o experimental) o "mouse" (la página del modo mouse)."""
 
 VERSION = "1.4"
 
@@ -18,6 +18,9 @@ RELEASES = [
          "El mando aparece dibujado con lo que hace cada botón. Haz clic en uno para cambiarlo."),
         ("emblem-ok-symbolic", "Configurar con tu mando",
          "Se ilumina un botón del mando Xbox y aprietas en tu mando el que quieres para él, como en Steam."),
+        ("input-mouse-symbolic", "El modo mouse, a la vista",
+         "Ahora tiene su página en la barra lateral, con tu mando dibujado. Los botones y combinaciones se "
+         "nombran como en el mando que usas: Wiimote solo, con Nunchuk o el Classic."),
     ]},
     {"version": "1.3", "title": "Novedades de Wii Gamepad 1.3", "pages": [
         ("audio-speakers-symbolic", "La bocina del Wiimote",

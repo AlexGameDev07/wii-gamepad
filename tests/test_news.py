@@ -55,8 +55,9 @@ class Novedades(unittest.TestCase):
         paginas = set(re.findall(r'name="(\w+)"\)', fuente))
         for notice in wn.NOTICES:
             kind, _, where = notice["target"].partition(":")
-            self.assertEqual(kind, "preferences")
-            self.assertIn(where, paginas)
+            self.assertIn(kind, ("preferences", "mouse"))
+            if kind == "preferences":
+                self.assertIn(where, paginas)
 
     def test_config_vieja_recibe_las_opciones_nuevas(self):
         import json

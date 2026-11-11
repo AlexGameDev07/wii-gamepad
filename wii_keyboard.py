@@ -42,6 +42,8 @@ DIRS = {"Up": (0, -1), "Down": (0, 1), "Left": (-1, 0), "Right": (1, 0)}
 # Con el teclado visible: botón del Wiimote -> acción (None = la tecla seleccionada)
 BUTTONS = {"A": None, "B": "backspace", "C": "hide", "Z": "shift", "1": "space", "2": "enter"}
 HINT = "A escribir · B borrar · C cerrar · Z mayúsculas · 1 espacio · 2 Enter · cruceta o stick: elegir"
+# Con el Classic, sus botones equivalentes (b = A, a = B, ZL = C, ZR = Z, L = 1, R = 2).
+HINT_CLASSIC = "b escribir · a borrar · ZL cerrar · ZR mayúsculas · L espacio · R Enter · cruceta o stick: elegir"
 
 
 def page_rows(page):
@@ -175,6 +177,7 @@ class Keyboard:
         self.tap = tap  # tap([(tecla, modificadores), ...]) escribe con el teclado virtual
         self.layout = None  # se lee al mostrarlo la primera vez
         self.visible = self.auto = self.shift = False
+        self.classic = False  # la ayuda de abajo nombra los botones del Classic
         self.page, self.row, self.col = 0, 1, 0
         self.held = {}  # "Up"/"B"/"stick"... -> cuándo repetir
         self.stick_dir = None
@@ -232,7 +235,8 @@ class Keyboard:
                 self.window = self._spawn("--window")
             except OSError:
                 return
-        state = {"show": self.visible, "page": self.page, "row": self.row, "col": self.col, "shift": self.shift}
+        state = {"show": self.visible, "page": self.page, "row": self.row, "col": self.col, "shift": self.shift,
+                 "classic": self.classic}
         try:
             self.window.stdin.write(json.dumps(state).encode() + b"\n")
             self.window.stdin.flush()
@@ -240,11 +244,11 @@ class Keyboard:
             self.window = None
 
     # --- estado ------------------------------------------------------------------------
-    def show(self, auto=False):
+    def show(self, auto=False, classic=False):
         if self.layout is None:
             self.layout = Layout()
             print(f"Teclado en pantalla con la distribución {self.layout.name}")
-        self.visible, self.auto = True, auto
+        self.visible, self.auto, self.classic = True, auto, classic
         self._send()
 
     def hide(self):
@@ -372,7 +376,7 @@ def run_window():
                                    fill="#0b1220" if selected else FG if usable else MUTED)
                 x += kw + gap
             y += unit + gap
-        canvas.create_text(width / 2, y + 8, text=HINT, fill=MUTED, font=("Sans", 9))
+        canvas.create_text(width / 2, y + 8, text=HINT_CLASSIC if state.get("classic") else HINT, fill=MUTED, font=("Sans", 9))
         height = y + 22
         mx, my, mw, mh = monitor or (0, 0, root.winfo_screenwidth(), root.winfo_screenheight())
         root.geometry(f"{width}x{height}+{mx + (mw - width) // 2}+{my + mh - height - 60}")

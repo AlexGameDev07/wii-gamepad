@@ -84,6 +84,26 @@ CLASSIC_STICK_DEFAULTS = {"classic_lstick": "left", "classic_rstick": "right"}
 CLASSIC_MOUSE_ALIAS = {"cB": "A", "cA": "B", "cZL": "C", "cZR": "Z", "cL": "1", "cR": "2",
                        "c+": "+", "c-": "-", "cHome": "Home",
                        "cUp": "Up", "cDown": "Down", "cLeft": "Left", "cRight": "Right"}
+CLASSIC_FOR = {v: k for k, v in CLASSIC_MOUSE_ALIAS.items()}  # botón del Wiimote/Nunchuk -> el del Classic
+# Con qué mando se usa el modo mouse; cambia cómo se llaman los botones en la ventana.
+MOUSE_PADS = {"wiimote": "Wiimote solo", "nunchuk": "Wiimote + Nunchuk", "classic": "Classic Controller"}
+
+
+def mouse_button_label(src, pad="nunchuk"):
+    """Nombre del botón que hay que apretar en ese mando para el botón src del modo mouse."""
+    if pad == "classic" and src in CLASSIC_FOR:
+        return source_label(CLASSIC_FOR[src])
+    return source_label(src)
+
+
+def mouse_pad_has(src, pad):
+    """Si ese mando tiene el botón src del modo mouse (C y Z son del Nunchuk)."""
+    return pad != "wiimote" or src in WIIMOTE_SOURCES
+
+
+def mouse_pad_of(player):
+    """El mando con que se usa un jugador, según lo que tiene enchufado (de state.json)."""
+    return "classic" if player.get("classic") else "nunchuk" if player.get("nunchuk") else "wiimote"
 
 
 def source_label(src):
@@ -302,8 +322,17 @@ def parse_combos(items):
     return list(combos.items())
 
 
-def combo_label(buttons):
-    return " + ".join(SOURCES[s][1] for s in SOURCES if s in buttons)
+def combo_label(buttons, pad="nunchuk"):
+    """Los botones de una combinación del modo mouse, con sus nombres en ese mando."""
+    return " + ".join(mouse_button_label(s, pad) for s in SOURCES if s in buttons)
+
+
+def mouse_toggle_label(combo, pad="nunchuk"):
+    """La combinación que entra y sale del modo mouse, con los nombres de ese mando."""
+    buttons, label = MOUSE_COMBOS.get(combo, MOUSE_COMBOS["none"])
+    if not buttons:
+        return label
+    return " y ".join(mouse_button_label(s, pad) for s in buttons) + " a la vez"
 
 
 def combo_problem(cfg, buttons):
@@ -1722,7 +1751,7 @@ class Bridge:
         if self.mouse_owner:
             self.mouse_owner.chords.reset()
         self.mouse.reset()  # p. ej. el clic con A que entró al campo de texto sigue apretado
-        self.kb.show(auto)
+        self.kb.show(auto, classic=bool(self.mouse_owner and CLASSIC in self.mouse_owner.extras))
 
     def ignore_focus(self):
         self.focus_quiet = time.monotonic() + FOCUS_QUIET

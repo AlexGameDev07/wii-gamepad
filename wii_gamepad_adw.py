@@ -675,6 +675,251 @@ class PlayerPage(Adw.NavigationPage):
         self.win.refresh()
 
 
+class MousePage(Adw.NavigationPage):
+    """El modo mouse: cómo se entra, qué hace cada botón sobre el dibujo del mando y las
+    combinaciones. Los nombres de los botones son los del mando elegido (el Classic tiene su
+    propio b, que hace de A), que se elige solo según lo que está enchufado."""
+
+    def __init__(self, win):
+        super().__init__(title="Modo mouse", tag="mouse")
+        self.win = win
+        self.pad = None
+        self.editor = None
+        self.wide_editor = True
+        header = Adw.HeaderBar()
+        self.switcher = Gtk.Box(css_classes=["linked"], valign=Gtk.Align.CENTER)
+        self.pad_buttons = {}
+        first = None
+        for key, label in wg.MOUSE_PADS.items():
+            b = Gtk.ToggleButton(label=label, group=first)
+            first = first or b
+            b.connect("toggled", lambda b, key=key: b.get_active() and self.pick_pad(key))
+            self.switcher.append(b)
+            self.pad_buttons[key] = b
+        self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24, margin_top=24, margin_bottom=24,
+                               margin_start=12, margin_end=12)
+        bin_ = Adw.BreakpointBin(width_request=300, height_request=300,
+                                 child=Gtk.ScrolledWindow(child=self.content, hscrollbar_policy=Gtk.PolicyType.NEVER))
+        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 620sp"))
+        bp.connect("apply", lambda _bp: self.set_narrow(True))
+        bp.connect("unapply", lambda _bp: self.set_narrow(False))
+        bin_.add_breakpoint(bp)
+        self.status = Adw.Banner()
+        view = Adw.ToolbarView()
+        view.add_top_bar(header)
+        view.add_top_bar(self.status)
+        view.set_content(bin_)
+        self.set_child(view)
+        self.refresh(win.state)
+
+    # --- qué mando ------------------------------------------------------------------
+    def detected_pad(self):
+        """El mando del que está en modo mouse, si no el del primero conectado."""
+        players = self.win.players()
+        player = next((p for p in players if p.get("mouse")), players[0] if players else None)
+        return wg.mouse_pad_of(player) if player else "nunchuk"
+
+    def pick_pad(self, pad):
+        if pad == self.pad:
+            return
+        if self.pad is not None:  # lo eligió a mano: se respeta hasta que cambie lo enchufado
+            self.win.mouse_pad = (pad, self.detected_pad())
+        self.build(pad)
+
+    def refresh(self, _state):
+        players = self.win.players()
+        owner = next((p for p in players if p.get("mouse")), None)
+        combo = wg.mouse_toggle_label(self.win.store.cfg["mouse_combo"], self.pad or self.detected_pad())
+        if owner:
+            self.status.set_title(f"{owner['name']} está en modo mouse ahora · para salir: {combo}")
+        self.status.set_revealed(owner is not None)
+        detected = self.detected_pad()
+        chosen = self.win.mouse_pad
+        pad = chosen[0] if chosen and chosen[1] == detected else detected
+        if chosen and chosen[1] != detected:
+            self.win.mouse_pad = None
+        if pad != self.pad:
+            self.build(pad)
+
+    # --- contenido -------------------------------------------------------------------
+    def set_narrow(self, narrow):
+        self.wide_editor = not narrow
+        self.switcher.set_orientation(Gtk.Orientation.VERTICAL if narrow else Gtk.Orientation.HORIZONTAL)
+        if self.editor:
+            self.editor.set_narrow(narrow)
+
+    def build(self, pad):
+        self.pad = pad
+        self.pad_buttons[pad].set_active(True)
+        cfg = self.win.store.cfg
+        m = cfg["mouse"]
+        save = self.win.store.save
+        if parent := self.switcher.get_parent():  # se vuelve a poner arriba
+            parent.remove(self.switcher)
+        while child := self.content.get_first_child():
+            self.content.remove(child)
+        name = lambda src: wg.mouse_button_label(src, pad)  # noqa: E731
+
+        def narrow(widget):
+            self.content.append(Adw.Clamp(maximum_size=640, child=widget))
+
+        def set_m(key, delay=False, rebuild=False):
+            def changed(value):
+                m[key] = value
+                save(delay)
+                if rebuild:
+                    self.editor.sync()
+            return changed
+
+        # Arriba: el mando y cómo se entra y sale
+        title = Gtk.Label(label="Tu mando", xalign=0, css_classes=["heading"])
+        sub = Gtk.Label(label="Los botones se nombran como en él. Se elige solo según lo que tengas enchufado.",
+                        xalign=0, wrap=True, css_classes=["caption", "dim-label"])
+        top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        top.append(title)
+        top.append(sub)
+        self.switcher.set_halign(Gtk.Align.START)
+        top.append(self.switcher)
+        narrow(top)
+
+        toggles = {k: wg.mouse_toggle_label(k, pad) for k in wg.MOUSE_COMBOS}
+
+        def set_combo(value):
+            cfg["mouse_combo"] = value
+            save()
+            self.refresh(self.win.state)
+
+        narrow(group(
+            "Entrar y salir", "El mando pasa de mando de juego a mouse y viceversa (vibra y suena al cambiar).",
+            combo_row("Combinación", toggles, cfg["mouse_combo"], set_combo)))
+
+        # El dibujo con lo que hace cada botón
+        heading = Gtk.Label(label="Botones", xalign=0, css_classes=["heading"])
+        self.editor = wm.MouseEditor(m, pad, save)
+        self.editor.set_narrow(not self.wide_editor)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.append(heading)
+        box.append(self.editor)
+        self.content.append(Adw.Clamp(maximum_size=1000, child=box))
+
+        self.combos = self.combos_group(pad)
+        narrow(self.combos)
+
+        stick = "el stick izquierdo del Classic" if pad == "classic" else "el stick del Nunchuk"
+        pointer = group("Puntero", f"«Stick» es {stick}. Sin él, o sin Motion Plus con «Giroscopio», la cruceta "
+                        "mueve el puntero." if pad != "wiimote" else
+                        "Sin Nunchuk ni Classic, con «Stick» la cruceta mueve el puntero. El giroscopio necesita "
+                        "el Motion Plus.")
+        pointer.add(combo_row("Mover el puntero con", wg.MOUSE_MOVES, m["move"], set_m("move", rebuild=True)))
+        pointer.add(scale_row("Velocidad", 0.3, 3.0, m["speed"], set_m("speed", True)))
+        if pad != "classic":
+            pointer.add(switch_row("Invertir eje horizontal del giroscopio", m["invert_gyro_x"],
+                                   set_m("invert_gyro_x")))
+            pointer.add(switch_row("Invertir eje vertical del giroscopio", m["invert_gyro_y"],
+                                   set_m("invert_gyro_y")))
+        narrow(pointer)
+
+        keys = [(name("A"), "la escribe"), (name("B"), "borra")]
+        if pad != "wiimote":
+            keys += [(name("C"), "lo cierra"), (name("Z"), "mayúsculas")]
+        keys += [(name("1"), "espacio"), (name("2"), "Enter")]
+        keyboard_owner = next((name(s) for s, a in m["buttons"].items() if a == "keyboard"
+                               and wg.mouse_pad_has(s, pad)), None)
+        how = f"También se abre con {keyboard_owner}. " if keyboard_owner else ""
+        choose = "cruceta o stick" if pad != "wiimote" else "la cruceta"
+        narrow(group(
+            "Teclado en pantalla", how + f"Con el teclado visible: {choose} eligen la tecla, "
+            + ", ".join(f"{b} {what}" for b, what in keys[:-1]) + f" y {keys[-1][0]} {keys[-1][1]}.",
+            switch_row("Mostrarlo al entrar a un campo de texto", m["auto_keyboard"], set_m("auto_keyboard"))))
+
+        def restore():
+            cfg["mouse_combo"] = wg.GLOBAL_OPTIONS["mouse_combo"]
+            m.clear()
+            m.update(copy.deepcopy(wg.MOUSE_DEFAULTS))
+            save()
+            self.win.toast("Modo mouse restaurado")
+            self.build(pad)
+
+        narrow(group(None, "Quién puede usar el modo mouse con varios Wiimotes se elige en Preferencias.",
+                     button_row("Restaurar el modo mouse", "Restaurar", restore, style="destructive-action")))
+
+    # --- combinaciones ----------------------------------------------------------------
+    def combos_group(self, pad):
+        m = self.win.store.cfg["mouse"]
+        mods = f"{wg.mouse_button_label('C', pad)} o {wg.mouse_button_label('Z', pad)}"
+        if pad == "wiimote":
+            desc = ("De 2 a 4 botones. Dos botones del Wiimote se aprietan casi a la vez. Las que usan C o Z "
+                    "necesitan el Nunchuk (o ZL/ZR del Classic).")
+        else:
+            desc = (f"De 2 a 4 botones. Si {mods} están en una combinación, su función normal actúa al soltarlos. "
+                    f"Mantén {mods} y repite la cruceta para seguir cambiando de ventana o pestaña.")
+        box = group("Combinaciones", desc)
+        rows = []
+
+        def remove(item):
+            m["combos"].remove(item)
+            self.win.store.save()
+            refresh()
+
+        def refresh():
+            while rows:
+                box.remove(rows.pop())
+            for item in m["combos"]:
+                action = wg.MOUSE_ACTIONS.get(item["action"], ((), item["action"]))[1]
+                usable = all(wg.mouse_pad_has(b, pad) for b in item["buttons"])
+                row = Adw.ActionRow(title=wg.combo_label(item["buttons"], pad),
+                                    subtitle=action if usable else f"{action} · necesita el Nunchuk")
+                if not usable:
+                    row.add_css_class("dim-label")
+                delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                    tooltip_text="Quitar esta combinación", css_classes=["flat"])
+                delete.connect("clicked", lambda _b, item=item: remove(item))
+                row.add_suffix(delete)
+                rows.append(row)
+                box.add(row)
+
+        add = Gtk.Button(valign=Gtk.Align.CENTER, css_classes=["flat"],
+                         child=Adw.ButtonContent(icon_name="list-add-symbolic", label="Añadir"))
+        add.connect("clicked", lambda _b: self.add_combo(pad, refresh))
+        box.set_header_suffix(add)
+        refresh()
+        return box
+
+    def add_combo(self, pad, refresh):
+        cfg = self.win.store.cfg
+        actions = {k: label for k, (_, label) in wg.MOUSE_ACTIONS.items() if k != "none"}
+        sources = [s for s in wg.NUNCHUK_SOURCES + wg.WIIMOTE_SOURCES if wg.mouse_pad_has(s, pad)]
+        checks = {s: Gtk.ToggleButton(label=wg.mouse_button_label(s, pad)) for s in sources}
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, homogeneous=True,
+                           column_spacing=6, row_spacing=6)
+        for check in checks.values():
+            flow.append(check)
+        action = Gtk.DropDown.new_from_strings(list(actions.values()))
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.append(flow)
+        content.append(action)
+        dialog = Adw.AlertDialog(heading="Añadir combinación",
+                                 body=f"Elige los botones de tu {wg.MOUSE_PADS[pad]} y qué hacen.",
+                                 extra_child=content)
+        dialog.add_response("cancel", "Cancelar")
+        dialog.add_response("add", "Añadir")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+
+        def done(_d, response):
+            if response != "add":
+                return
+            buttons = [s for s, check in checks.items() if check.get_active()]
+            if problem := wg.combo_problem(cfg, buttons):
+                self.win.toast(problem)
+                return
+            cfg["mouse"]["combos"].append({"buttons": buttons, "action": list(actions)[action.get_selected()]})
+            self.win.store.save()
+            refresh()
+
+        dialog.connect("response", done)
+        dialog.present(self)
+
+
 class Preferences(Adw.PreferencesDialog):
     def __init__(self, win):
         super().__init__(title="Preferencias", search_enabled=True, content_width=720)
@@ -717,7 +962,6 @@ class Preferences(Adw.PreferencesDialog):
                        "Desactívalas si prefieres menos movimiento")))
         self.add(general)
         self.add(self.alerts_page())
-        self.add(self.mouse_page())
         self.add(self.experimental_page())
 
     def experimental_page(self):
@@ -802,121 +1046,6 @@ class Preferences(Adw.PreferencesDialog):
                                                        icon="folder-open-symbolic")))
         return page
 
-    def mouse_page(self):
-        cfg = self.win.store.cfg
-        m = cfg["mouse"]
-        page = Adw.PreferencesPage(title="Modo mouse", icon_name="input-mouse-symbolic", name="mouse")
-
-        def set_m(key, delay=False):
-            def changed(value):
-                m[key] = value
-                self.win.store.save(delay)
-            return changed
-
-        def set_combo(value):
-            cfg["mouse_combo"] = value
-            self.win.store.save()
-
-        page.add(group(
-            "Modo mouse", "Con la combinación, el Wiimote pasa de mando de juego a mouse y viceversa (vibra y suena "
-            "al cambiar). Si falta el Nunchuk, o el Motion Plus con «Giroscopio», la cruceta mueve el puntero.",
-            combo_row("Activar / desactivar", {k: label for k, (_, label) in wg.MOUSE_COMBOS.items()},
-                      cfg["mouse_combo"], set_combo),
-            combo_row("Mover el puntero con", wg.MOUSE_MOVES, m["move"], set_m("move")),
-            scale_row("Velocidad", 0.3, 3.0, m["speed"], set_m("speed", True)),
-            switch_row("Invertir eje horizontal del giroscopio", m["invert_gyro_x"], set_m("invert_gyro_x")),
-            switch_row("Invertir eje vertical del giroscopio", m["invert_gyro_y"], set_m("invert_gyro_y"))))
-        page.add(group(
-            "Teclado en pantalla", "También se abre con el botón que tenga «Teclado en pantalla». Con el teclado "
-            "visible: cruceta o stick eligen la tecla, A la escribe, B borra, C lo cierra, Z mayúsculas, "
-            "1 espacio y 2 Enter.",
-            switch_row("Mostrarlo al entrar a un campo de texto", m["auto_keyboard"], set_m("auto_keyboard"))))
-        actions = {k: label for k, (_, label) in wg.MOUSE_ACTIONS.items()}
-        buttons = group("Botones en modo mouse")
-        for src in wg.WIIMOTE_SOURCES + wg.NUNCHUK_SOURCES:
-            def changed(value, src=src):
-                m["buttons"][src] = value
-                self.win.store.save()
-            buttons.add(combo_row(wg.SOURCES[src][1], actions, m["buttons"].get(src, "none"), changed))
-        page.add(buttons)
-        page.add(self.combos_group())
-
-        def restore():
-            cfg["mouse_combo"] = wg.GLOBAL_OPTIONS["mouse_combo"]
-            m.clear()
-            m.update(copy.deepcopy(wg.MOUSE_DEFAULTS))
-            self.win.store.save()
-            self.win.toast("Modo mouse restaurado")
-            self.close()
-
-        page.add(group(None, None, button_row("Restaurar el modo mouse", "Restaurar", restore,
-                                              style="destructive-action")))
-        return page
-
-    def combos_group(self):
-        m = self.win.store.cfg["mouse"]
-        box = group("Combinaciones", "De 2 a 4 botones. Si C o Z están en una combinación, su función normal "
-                    "actúa al soltarlos. Mantén C o Z y repite la cruceta para seguir cambiando de ventana o "
-                    "pestaña. Dos botones del Wiimote, sin C ni Z, se aprietan casi a la vez.")
-        rows = []
-
-        def remove(item):
-            m["combos"].remove(item)
-            self.win.store.save()
-            refresh()
-
-        def refresh():
-            while rows:
-                box.remove(rows.pop())
-            for item in m["combos"]:
-                action = wg.MOUSE_ACTIONS.get(item["action"], ((), item["action"]))[1]
-                rows.append(Adw.ActionRow(title=wg.combo_label(item["buttons"]), subtitle=action))
-                delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
-                                    tooltip_text="Quitar esta combinación")
-                delete.add_css_class("flat")
-                delete.connect("clicked", lambda _b, item=item: remove(item))
-                rows[-1].add_suffix(delete)
-                box.add(rows[-1])
-
-        add = Gtk.Button(valign=Gtk.Align.CENTER, child=Adw.ButtonContent(icon_name="list-add-symbolic", label="Añadir"))
-        add.add_css_class("flat")
-        add.connect("clicked", lambda _b: self.add_combo(refresh))
-        box.set_header_suffix(add)
-        refresh()
-        return box
-
-    def add_combo(self, refresh):
-        cfg = self.win.store.cfg
-        actions = {k: label for k, (_, label) in wg.MOUSE_ACTIONS.items() if k != "none"}
-        checks = {s: Gtk.ToggleButton(label=wg.SOURCES[s][1]) for s in wg.NUNCHUK_SOURCES + wg.WIIMOTE_SOURCES}
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, homogeneous=True,
-                           column_spacing=6, row_spacing=6)
-        for check in checks.values():
-            flow.append(check)
-        action = Gtk.DropDown.new_from_strings(list(actions.values()))
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.append(flow)
-        content.append(action)
-        dialog = Adw.AlertDialog(heading="Añadir combinación", body="Elige los botones y qué hacen.",
-                                 extra_child=content)
-        dialog.add_response("cancel", "Cancelar")
-        dialog.add_response("add", "Añadir")
-        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
-
-        def done(_d, response):
-            if response != "add":
-                return
-            buttons = [s for s, check in checks.items() if check.get_active()]
-            if problem := wg.combo_problem(cfg, buttons):
-                self.win.toast(problem)
-                return
-            cfg["mouse"]["combos"].append({"buttons": buttons, "action": list(actions)[action.get_selected()]})
-            self.win.store.save()
-            refresh()
-
-        dialog.connect("response", done)
-        dialog.present(self)
-
 
 class ReleaseDialog(Adw.Dialog):
     """Lo nuevo de la versión, página por página."""
@@ -968,6 +1097,7 @@ class Window(Adw.ApplicationWindow):
         self.selected = None
         self.page = None
         self.mapper_layout = "wiimote"  # el último mando elegido en el editor de botones
+        self.mouse_pad = None  # (mando elegido a mano en «Modo mouse», el que había detectado entonces)
 
         self.list = Gtk.ListBox(css_classes=["navigation-sidebar"])
         self.list.set_header_func(self.row_header)
@@ -1057,6 +1187,12 @@ class Window(Adw.ApplicationWindow):
             hint.set_activatable(False)
             hint.set_selectable(False)
             self.list.append(hint)
+        owner = next((p for p in self.players() if p.get("mouse")), None)
+        self.list.append(SidebarRow("Escritorio", ("mouse", ""), "Modo mouse",
+                                    f"Activo: {owner['name']}" if owner else
+                                    wg.mouse_toggle_label(cfg["mouse_combo"], wg.mouse_pad_of(self.players()[0])
+                                                          if self.players() else "nunchuk"),
+                                    icon="input-mouse-symbolic"))
         for name in cfg["profiles"]:
             self.list.append(SidebarRow("Perfiles", ("profile", name), name,
                                         "Por defecto" if name == cfg["active"] else "",
@@ -1095,7 +1231,8 @@ class Window(Adw.ApplicationWindow):
         self.selected = key
         if self.page is not None and isinstance(self.page, PlayerPage):
             self.page.pad.detach()
-        self.page = ProfilePage(self, key[1]) if key[0] == "profile" else PlayerPage(self, key[1])
+        self.page = (ProfilePage(self, key[1]) if key[0] == "profile" else MousePage(self) if key[0] == "mouse"
+                     else PlayerPage(self, key[1]))
         self.split.set_content(self.page)
         GLib.idle_add(lambda: self.set_focus(None))  # que no empiece escribiendo en «Nombre»
         if show:
@@ -1144,7 +1281,9 @@ class Window(Adw.ApplicationWindow):
         self.notice_button.popdown()
         self.read_notice(notice)
         kind, _, where = notice["target"].partition(":")
-        if kind == "preferences":
+        if kind == "mouse" or (kind, where) == ("preferences", "mouse"):
+            self.select(("mouse", ""))
+        elif kind == "preferences":
             self.get_application().show_preferences(page=where)
 
     def toast(self, text):

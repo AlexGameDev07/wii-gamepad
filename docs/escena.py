@@ -56,7 +56,8 @@ def inside(fotos=False):
         run = Path(os.environ["XDG_RUNTIME_DIR"]) / "wii-gamepad"
         run.mkdir(parents=True, exist_ok=True)
         players = [{"id": mac, "number": n, "name": f"Jugador {n}", "profile": "Rocket League",
-                    "pad": f"escena/pad{n}", "mouse": False, "battery": battery, "hidraw": None}
+                    "pad": f"escena/pad{n}", "mouse": False, "battery": battery, "hidraw": None,
+                    "nunchuk": True, "classic": False}
                    for n, mac, battery in ((1, "00:11:22:33:44:55", 80), (2, "66:77:88:99:AA:BB", 60))]
         (run / "state.json").write_text(json.dumps({"pid": os.getpid(), "players": players}))
     app = ui.App()
@@ -156,7 +157,7 @@ def inside(fotos=False):
               (100, classic), (1000, lambda: shot("perfil-classic")),
               (100, wizard), (1200, lambda: shot("asistente")),
               (100, lambda: win.get_visible_dialog().close()),
-              (100, prefs("mouse")), (1000, lambda: shot("modo-mouse")),
+              (100, lambda: win.select(("mouse", ""))), (1000, lambda: shot("modo-mouse")),
               (100, prefs("alerts")), (1000, lambda: shot("avisos")),
               (100, prefs("experimental")), (1000, lambda: shot("experimental")),
               (100, lambda: win.get_visible_dialog().close()),

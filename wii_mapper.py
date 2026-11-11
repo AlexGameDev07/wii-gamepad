@@ -71,6 +71,25 @@ class Spot:
         self.key = key
         self.label = label or wg.source_label(src)
         self.back = back  # está por detrás del mando (el B del Wiimote): se dibuja punteado
+        self.chip = True  # lleva etiqueta con lo que hace (no los botones sin uso en el modo mouse)
+
+    def title(self):
+        return self.label if self.kind == "stick" else wg.source_label(self.src)
+
+    def text(self, value):
+        """Lo que se lee en su etiqueta."""
+        return chip_text(value, self.kind)
+
+    def describe(self, value):
+        """Lo que hace, completo, para el tooltip."""
+        return self.options().get(value, value)
+
+    def face(self, value):
+        """El botón A/B/X/Y del mando Xbox con su color, si es eso."""
+        return value if self.kind == "button" and value in FACE else None
+
+    def picker(self, current, pick):
+        return TargetGrid(self, current, pick)
 
     def get(self, profile):
         if self.kind == "stick":
@@ -195,6 +214,21 @@ def draw_spots(cr, paint, spots, skip=()):
 
 
 def draw_wiimote(cr, paint, spots):
+    draw_nunchuk_body(cr, paint)
+    draw_wiimote_body(cr, paint)
+    draw_spots(cr, paint, spots)
+
+
+def draw_wiimote_alone(cr, paint, spots):
+    """El Wiimote sin Nunchuk: el mismo dibujo corrido a la izquierda (sus botones ya vienen corridos)."""
+    cr.save()
+    cr.translate(-WIIMOTE_ALONE_DX, 0)
+    draw_wiimote_body(cr, paint)
+    cr.restore()
+    draw_spots(cr, paint, spots)
+
+
+def draw_nunchuk_body(cr, paint):
     # Cable del Nunchuk al Wiimote
     paint.set(cr, paint.fg, 0.3)
     cr.set_line_width(2)
@@ -209,7 +243,9 @@ def draw_wiimote(cr, paint, spots):
     cr.curve_to(48, 240, 23, 195, 23, 140)
     cr.close_path()
     paint.body(cr)
-    # Wiimote
+
+
+def draw_wiimote_body(cr, paint):
     rounded(cr, 190, 8, 84, 420, 26)
     paint.body(cr)
     cr.arc(232, 34, 7, 0, 2 * math.pi)  # encendido
@@ -225,7 +261,6 @@ def draw_wiimote(cr, paint, spots):
         rounded(cr, 207 + i * 14, 412, 8, 5, 2)
         paint.set(cr, paint.fg, 0.25)
         cr.fill()
-    draw_spots(cr, paint, spots)
 
 
 def draw_classic(cr, paint, spots):
@@ -290,6 +325,233 @@ CLASSIC_LAYOUT = Layout("classic", "Classic / Classic Pro", (440, 268), [
 ], draw_classic)
 
 LAYOUTS = {l.key: l for l in (WIIMOTE_LAYOUT, CLASSIC_LAYOUT)}
+WIIMOTE_ALONE_DX = 180  # el Wiimote solo empieza donde termina el Nunchuk
+
+
+# --- modo mouse --------------------------------------------------------------------
+# Las acciones del modo mouse, por tema, para elegirlas en el menú de cada botón.
+ACTION_SECTIONS = (
+    ("Mouse", ("left", "right", "middle", "wheel_up", "wheel_down")),
+    ("Teclas", ("enter", "esc", "backspace", "space", "tab", "up", "down", "left_key", "right_key", "super",
+                "keyboard")),
+    ("Ventanas", ("alt_tab", "alt_tab_prev", "close", "fullscreen", "screenshot")),
+    ("Navegador", ("nav_back", "nav_fwd", "reload", "tab_next", "tab_prev", "tab_new", "tab_close", "tab_reopen",
+                   "browser_close")),
+    ("Edición", ("copy", "paste", "cut", "undo", "select_all")),
+    ("Multimedia", ("vol_up", "vol_down", "mute", "play")),
+)
+POINTER = "pointer"  # lo que muestra la cruceta cuando mueve el puntero
+DPAD = ("Up", "Down", "Left", "Right")
+
+
+def action_short(action):
+    """Nombre corto de una acción, sin las teclas entre paréntesis: «Cambiar ventana»."""
+    if action == "none":
+        return "Nada"
+    return wg.MOUSE_ACTIONS.get(action, ((), action))[1].split(" (")[0]
+
+
+def dpad_moves(m, pad):
+    """Si en modo mouse la cruceta mueve el puntero en ese mando (como Player.dpad_moves)."""
+    return m["move"] == "dpad" or (m["move"] == "stick" and pad == "wiimote")
+
+
+class MouseSpot(Spot):
+    """Un botón del dibujo en el modo mouse: lee y cambia la acción del botón del Wiimote/Nunchuk
+    al que equivale (en el Classic, b hace de A, ZL de C...). El stick elige con qué se mueve el puntero."""
+
+    def __init__(self, base, pad, m, dx=0, side=None):
+        super().__init__(base.src, base.x + dx, base.y, base.shape, side or base.side, base.kind, base.key,
+                         base.label, base.back)
+        self.pad, self.m = pad, m
+        self.alias = wg.CLASSIC_MOUSE_ALIAS.get(base.src) if pad == "classic" else base.src
+        # Sin uso en el modo mouse: x, y y el stick derecho del Classic.
+        self.chip = self.alias is not None if self.kind == "button" else base.src != "classic_rstick"
+
+    def value(self, m):
+        return m["move"] if self.kind == "stick" else m["buttons"].get(self.alias, "none")
+
+    def moves_pointer(self):
+        return self.kind == "button" and self.alias in DPAD and dpad_moves(self.m, self.pad)
+
+    def get(self, m):
+        return POINTER if self.moves_pointer() else self.value(m)
+
+    def set(self, m, value):
+        if self.kind == "stick":
+            m["move"] = value
+        else:
+            m["buttons"][self.alias] = value
+
+    def options(self):
+        if self.kind == "stick":
+            return wg.MOUSE_MOVES
+        return {k: label for k, (_, label) in wg.MOUSE_ACTIONS.items()}
+
+    def text(self, value):
+        if self.kind == "stick":
+            return "Mueve el puntero" if value == "stick" else "Nada"
+        return "Mueve el puntero" if value == POINTER else action_short(value)
+
+    def describe(self, value):
+        if self.kind == "stick":
+            return "Mueve el puntero" if value == "stick" else f"Nada: el puntero va con {wg.MOUSE_MOVES[value]}"
+        if value == POINTER:
+            return f"Mueve el puntero. Si no, {self.options().get(self.value(self.m))}"
+        return self.options().get(value, value)
+
+    def face(self, value):
+        return None
+
+    def picker(self, current, pick):
+        return MousePicker(self, pick)
+
+
+class MousePicker(Gtk.Box):
+    """El menú de un botón en el modo mouse: las acciones por tema (o, para el stick, con qué se
+    mueve el puntero); on_pick(id)."""
+
+    def __init__(self, spot, on_pick):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=6, margin_bottom=6,
+                         margin_start=6, margin_end=6)
+        self.on_pick = on_pick
+        current = spot.value(spot.m)
+        if spot.kind == "stick":
+            self.append(Gtk.Label(label="Con qué se mueve el puntero:", xalign=0, css_classes=["dim-label"]))
+            for value, label in wg.MOUSE_MOVES.items():
+                self.append(self.button(value, label, current, label))
+            return
+        if spot.moves_pointer():
+            how = ("elegiste moverlo con la cruceta" if spot.m["move"] == "dpad" else
+                   "sin Nunchuk ni Classic la cruceta lo mueve")
+            self.append(Gtk.Label(label=f"Ahora la cruceta mueve el puntero ({how}). Lo que elijas se usa cuando "
+                                  "no lo mueve.", xalign=0, wrap=True, max_width_chars=40,
+                                  css_classes=["caption", "dim-label"]))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        listed = set()
+        for title, actions in ACTION_SECTIONS:
+            box.append(self.section(title, actions, current))
+            listed.update(actions)
+        rest = [a for a in wg.MOUSE_ACTIONS if a not in listed and a != "none"]
+        if rest:
+            box.append(self.section("Otras", rest, current))
+        scroll = Gtk.ScrolledWindow(child=box, hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True,
+                                    max_content_height=380)
+        self.append(scroll)
+        self.append(self.button("none", "Nada (desactivar)", current, "No hace nada"))
+
+    def section(self, title, actions, current):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.append(Gtk.Label(label=title, xalign=0, css_classes=["caption-heading", "dim-label"]))
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, column_spacing=6,
+                           row_spacing=6, max_children_per_line=2, min_children_per_line=2)
+        for action in actions:
+            child = Gtk.FlowBoxChild(focusable=False)
+            child.set_child(self.button(action, action_short(action), current, wg.MOUSE_ACTIONS[action][1]))
+            flow.append(child)
+        box.append(flow)
+        return box
+
+    def button(self, value, label, current, tooltip):
+        b = Gtk.Button(label=label, tooltip_text=tooltip, css_classes=["target-btn"], hexpand=True)
+        b.get_child().set_ellipsize(Pango.EllipsizeMode.END)
+        if value == current:
+            b.add_css_class("current")
+            b.add_css_class("suggested-action")
+        b.connect("clicked", lambda _b: self.on_pick(value))
+        return b
+
+
+def mouse_layout(pad, m):
+    """El dibujo del mando para el modo mouse: el Wiimote solo, con Nunchuk o el Classic."""
+    if pad == "classic":
+        return Layout("mouse-classic", "Classic", CLASSIC_LAYOUT.size,
+                      [MouseSpot(s, pad, m) for s in CLASSIC_LAYOUT.spots], draw_classic)
+    if pad == "nunchuk":
+        return Layout("mouse-nunchuk", "Wiimote + Nunchuk", WIIMOTE_LAYOUT.size,
+                      [MouseSpot(s, pad, m) for s in WIIMOTE_LAYOUT.spots], draw_wiimote)
+    # Sin Nunchuk las etiquetas se reparten a los dos lados del Wiimote.
+    left = {"Left", "-", "1", "B"}
+    spots = [MouseSpot(s, pad, m, -WIIMOTE_ALONE_DX, "l" if s.src in left else "r")
+             for s in WIIMOTE_LAYOUT.spots if s.src in wg.WIIMOTE_SOURCES]
+    return Layout("mouse-wiimote", "Wiimote solo", (104, WIIMOTE_LAYOUT.size[1]), spots, draw_wiimote_alone)
+
+
+class MouseEditor(Gtk.Box):
+    """Los botones del modo mouse sobre el dibujo del mando elegido (o en lista si la ventana es
+    estrecha). Cambiar algo lo guarda con save()."""
+
+    def __init__(self, m, pad, save):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["card"])
+        self.m, self.save = m, save
+        self.narrow = False
+        self.stack = Gtk.Stack(hhomogeneous=False, vhomogeneous=False,
+                               transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.append(self.stack)
+        self.hint = Gtk.Label(css_classes=["caption", "dim-label"], wrap=True, justify=Gtk.Justification.CENTER,
+                              margin_bottom=10, margin_start=12, margin_end=12)
+        self.append(self.hint)
+        self.set_pad(pad)
+
+    def set_pad(self, pad):
+        self.pad = pad
+        self.layout = mouse_layout(pad, self.m)
+        for name in ("map", "list"):
+            if old := self.stack.get_child_by_name(name):
+                self.stack.remove(old)
+        self.map = ControllerMap(self.layout, self.m, self.changed)
+        self.map.set_margin_top(14)
+        self.map.set_margin_start(12)
+        self.map.set_margin_end(12)
+        self.stack.add_named(self.map, "map")
+        self.rows = {}
+        listbox = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, margin_top=12,
+                              margin_bottom=12, margin_start=12, margin_end=12)
+        for spot in self.layout.spots:
+            if not spot.chip:
+                continue
+            options = spot.options()
+            keys = list(options)
+            row = Adw.ComboRow(title=spot.title(), model=Gtk.StringList.new([str(v) for v in options.values()]))
+            row.set_selected(keys.index(spot.value(self.m)) if spot.value(self.m) in keys else 0)
+            row.connect("notify::selected", lambda r, _p, spot=spot, keys=keys: self.list_changed(spot, keys, r))
+            self.rows[spot.src] = (row, keys)
+            listbox.append(row)
+        self.stack.add_named(listbox, "list")
+        self.sync()
+        self.set_narrow(self.narrow)
+
+    def set_narrow(self, narrow):
+        self.narrow = narrow
+        self.stack.set_visible_child_name("list" if narrow else "map")
+        self.hint.set_visible(not narrow)
+        extra = {"wiimote": " El B del Wiimote está por detrás (punteado).",
+                 "nunchuk": " El B del Wiimote está por detrás (punteado).",
+                 "classic": " x, y y el stick derecho no se usan en el modo mouse."}[self.pad]
+        self.hint.set_label("Haz clic en un botón del dibujo o en su etiqueta para cambiar lo que hace." + extra)
+
+    def list_changed(self, spot, keys, row):
+        value = keys[row.get_selected()]
+        if value != spot.value(self.m):
+            spot.set(self.m, value)
+            self.sync()
+            self.save()
+
+    def changed(self, _spot):
+        self.sync()
+        self.save()
+
+    def sync(self):
+        """Etiquetas y lista al día: cambiar con qué se mueve el puntero cambia también la cruceta."""
+        self.map.refresh()
+        for spot in self.layout.spots:
+            if spot.src not in self.rows:
+                continue
+            row, keys = self.rows[spot.src]
+            value = spot.value(self.m)
+            if value in keys and row.get_selected() != keys.index(value):
+                row.set_selected(keys.index(value))
+            row.set_subtitle("Ahora mueve el puntero" if spot.moves_pointer() else "")
 
 
 # --- widgets ---------------------------------------------------------------------
@@ -353,7 +615,8 @@ class ControllerMap(Gtk.Widget):
         self._geom = None
         if chips:
             for spot in layout.spots:
-                self.chips[spot.src] = self.make_chip(spot)
+                if spot.chip:
+                    self.chips[spot.src] = self.make_chip(spot)
             click = Gtk.GestureClick()
             click.connect("released", self.on_click)
             self.add_controller(click)
@@ -367,8 +630,7 @@ class ControllerMap(Gtk.Widget):
 
     # --- etiquetas ---------------------------------------------------------------
     def make_chip(self, spot):
-        src_label = Gtk.Label(label=spot.label if spot.kind == "stick" else wg.source_label(spot.src),
-                              css_classes=["chip-src"])
+        src_label = Gtk.Label(label=spot.title(), css_classes=["chip-src"])
         target = Gtk.Label(css_classes=["chip-target"])
         box = Gtk.Box(spacing=6)
         box.append(src_label)
@@ -389,16 +651,15 @@ class ControllerMap(Gtk.Widget):
     def update_chip(self, chip):
         spot = chip.spot
         value = spot.get(self.profile)
-        chip.target_label.set_label(chip_text(value, spot.kind))
+        chip.target_label.set_label(spot.text(value))
         for c in ("unset", *("xb", "xb-A", "xb-B", "xb-X", "xb-Y")):
             chip.target_label.remove_css_class(c)
         if value == "none":
             chip.target_label.add_css_class("unset")
-        elif spot.kind == "button" and value in FACE:
+        elif face := spot.face(value):
             chip.target_label.add_css_class("xb")
-            chip.target_label.add_css_class("xb-" + value)
-        chip.set_tooltip_text(f"{spot.label if spot.kind == 'stick' else wg.source_label(spot.src)}: "
-                              f"{spot.options().get(value, value)}")
+            chip.target_label.add_css_class("xb-" + face)
+        chip.set_tooltip_text(f"{spot.title()}: {spot.describe(value)}")
 
     def refresh(self):
         for chip in self.chips.values():
@@ -418,9 +679,9 @@ class ControllerMap(Gtk.Widget):
                 self.on_change(spot)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, width_request=300)
-        box.append(Gtk.Label(label=f"Qué hace «{spot.label if spot.kind == 'stick' else wg.source_label(spot.src)}»",
+        box.append(Gtk.Label(label=f"Qué hace «{spot.title()}»",
                              xalign=0, css_classes=["heading"], margin_start=6, margin_top=4))
-        box.append(TargetGrid(spot, spot.get(self.profile), pick))
+        box.append(spot.picker(spot.get(self.profile), pick))
         pop.set_child(box)
         chip.set_popover(pop)
 
@@ -705,7 +966,7 @@ class ButtonEditor(Gtk.Box):
         for spot in self.layout.spots:
             options = spot.options()
             keys = list(options)
-            title = spot.label if spot.kind == "stick" else wg.source_label(spot.src)
+            title = spot.title()
             if spot.src == "B":
                 title = "B (gatillo)"
             row = Adw.ComboRow(title=title, model=Gtk.StringList.new([str(v) for v in options.values()]))
