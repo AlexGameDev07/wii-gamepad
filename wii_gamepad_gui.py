@@ -282,6 +282,7 @@ class App(tk.Tk):
         ttk.Button(bottom, text="Avisos…", command=self.open_sounds).pack(side="right", padx=2)
         ttk.Button(bottom, text="Modo mouse…", command=self.open_mouse).pack(side="right", padx=2)
         ttk.Button(bottom, text="Wiimotes…", command=self.open_wiimotes).pack(side="right", padx=2)
+        ttk.Button(bottom, text="Classic…", command=self.open_classic).pack(side="right", padx=2)
 
     # --- perfiles ---------------------------------------------------------------
     def profile(self):
@@ -508,6 +509,36 @@ class App(tk.Tk):
 
             variables[wid] = self.combo(f, r, label, options, changed)
             variables[wid].set(options.get(devices.get(wid, {}).get("profile", ""), options[""]))
+
+    def open_classic(self):
+        """Botones y sticks del Classic Controller / Classic Pro en el perfil actual."""
+        if getattr(self, "classic_win", None) and self.classic_win.winfo_exists():
+            self.classic_win.lift()
+            return
+        win = self.classic_win = tk.Toplevel(self)
+        win.title("Classic Controller")
+        win.configure(bg=BG)
+        name = self.cfg["active"]
+        p = self.cfg["profiles"][name]
+        f = self.panel(win, f"Classic / Classic Pro — perfil «{name}»")
+        f.pack(fill="both", expand=True, padx=12, pady=12)
+
+        def row(r, label, options, get, put):
+            def changed():
+                put({v: k for k, v in options.items()}[var.get()])
+                self.save()
+            var = self.combo(f, r, label, options, changed)
+            var.set(options.get(get(), options["none"]))
+
+        r = 1
+        for src in wg.CLASSIC_SOURCES:
+            row(r, wg.source_label(src), wg.TARGETS, lambda src=src: p["buttons"].get(src, "none"),
+                lambda v, src=src: p["buttons"].__setitem__(src, v))
+            r += 1
+        for key, label in (("classic_lstick", "Stick izquierdo"), ("classic_rstick", "Stick derecho")):
+            row(r, label, wg.STICK_TARGETS, lambda key=key: p.get(key, "none"),
+                lambda v, key=key: p.__setitem__(key, v))
+            r += 1
 
     def open_mouse(self):
         if getattr(self, "mouse_win", None) and self.mouse_win.winfo_exists():

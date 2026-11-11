@@ -29,7 +29,7 @@ RUN dnf install -y python3-tkinter python3-evdev xorg-x11-server-Xvfb ffmpeg-fre
         gtk4 libadwaita python3-gobject adwaita-icon-theme adwaita-sans-fonts && dnf clean all
 """
 DURATION = 15  # s de GIF
-STILLS = ("ventana", "perfil", "modo-mouse", "avisos", "experimental", "teclado")
+STILLS = ("ventana", "perfil", "perfil-classic", "asistente", "modo-mouse", "avisos", "experimental", "teclado")
 ACCENT = "#e62d42"  # las capturas van en oscuro con este acento, sea cual sea el del sistema
 # Guion del Wiimote falso: (segundo, acción, argumentos)
 SCRIPT = [
@@ -56,7 +56,8 @@ def inside(fotos=False):
         run = Path(os.environ["XDG_RUNTIME_DIR"]) / "wii-gamepad"
         run.mkdir(parents=True, exist_ok=True)
         players = [{"id": mac, "number": n, "name": f"Jugador {n}", "profile": "Rocket League",
-                    "pad": f"escena/pad{n}", "mouse": False, "battery": battery, "hidraw": None}
+                    "pad": f"escena/pad{n}", "mouse": False, "battery": battery, "hidraw": None,
+                    "nunchuk": True, "classic": False}
                    for n, mac, battery in ((1, "00:11:22:33:44:55", 80), (2, "66:77:88:99:AA:BB", 60))]
         (run / "state.json").write_text(json.dumps({"pid": os.getpid(), "players": players}))
     app = ui.App()
@@ -138,10 +139,25 @@ def inside(fotos=False):
                 dialog.set_visible_page_name(page)
             return open_
 
+        def classic():
+            """El editor de botones con el dibujo del Classic Controller."""
+            child = win.page.buttons.switcher.get_first_child()
+            while child:
+                if child.get_label().startswith("Classic"):
+                    child.set_active(True)
+                child = child.get_next_sibling()
+
+        def wizard():
+            """El asistente «Configurar con tu mando», pidiendo el botón para A."""
+            win.page.buttons.run_setup()
+
         steps((1200, lambda: shot("ventana")),
               (100, lambda: win.select(("profile", win.store.cfg["active"]))),
               (1000, lambda: shot("perfil")),
-              (100, prefs("mouse")), (1000, lambda: shot("modo-mouse")),
+              (100, classic), (1000, lambda: shot("perfil-classic")),
+              (100, wizard), (1200, lambda: shot("asistente")),
+              (100, lambda: win.get_visible_dialog().close()),
+              (100, lambda: win.select(("mouse", ""))), (1000, lambda: shot("modo-mouse")),
               (100, prefs("alerts")), (1000, lambda: shot("avisos")),
               (100, prefs("experimental")), (1000, lambda: shot("experimental")),
               (100, lambda: win.get_visible_dialog().close()),

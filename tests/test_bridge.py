@@ -495,6 +495,126 @@ def test_players(tmp):
         b.stop()
 
 
+def test_classic(tmp):
+    """Classic Controller (o Classic Pro) enchufado al Wiimote: sus botones y sticks van aparte."""
+    print("Classic Controller")
+    cfg_path = quiet_config(tmp)
+    fake = FakeWiimote()
+    stick = AbsInfo(0, -30, 30, 1, 1, 0)
+    classic = UInput({e.EV_KEY: [code for code, _ in wg.CLASSIC_BUTTONS.values()],
+                      e.EV_ABS: [(c, stick) for c in (e.ABS_HAT1X, e.ABS_HAT1Y, e.ABS_HAT2X, e.ABS_HAT2Y,
+                                                      e.ABS_HAT3X, e.ABS_HAT3Y)]},
+                     name=wg.CLASSIC, phys=fake.id)
+    b = BridgeProcess(tmp, cfg_path)
+    pad = None
+
+    def press(src):
+        code = wg.CLASSIC_BUTTONS[src][0]
+        for value in (1, 0):
+            classic.write(e.EV_KEY, code, value)
+            classic.syn()
+            time.sleep(0.05)
+
+    def move(code, value):
+        classic.write(e.EV_ABS, code, value)
+        classic.syn()
+
+    try:
+        pad = wait_device(wg.PAD_NAME)
+        if pad is None:
+            check("el puente crea el mando", False, "".join(b.out))
+            return
+        pad.grab()
+        check("detecta el Classic Controller", b.wait_output("Classic Controller conectado"), "".join(b.out))
+        time.sleep(0.3)
+        drain(pad)
+        for src, code, label in (("cB", e.BTN_A, "A"), ("cA", e.BTN_B, "B"), ("cY", e.BTN_X, "X"),
+                                 ("cX", e.BTN_Y, "Y"), ("cL", e.BTN_TL, "LB"), ("c+", e.BTN_START, "Start")):
+            press(src)
+            check(f"Classic {wg.source_label(src)} -> {label}", wait_event(pad, key(code)) is not None)
+        press("cZR")
+        check("Classic ZR -> gatillo RT a fondo", wait_event(pad, axis(e.ABS_RZ, lambda v: v == 255)) is not None)
+        press("cUp")
+        check("su cruceta no se confunde con la del Wiimote (↑ -> cruceta ↑, no Y)",
+              wait_event(pad, axis(e.ABS_HAT0Y, lambda v: v == -1)) is not None)
+        move(e.ABS_HAT1X, 28)
+        check("stick izquierdo del Classic -> stick izq.", wait_event(pad, axis(e.ABS_X, lambda v: v > 25000)) is not None)
+        move(e.ABS_HAT2Y, 28)
+        check("stick derecho arriba -> stick der. arriba", wait_event(pad, axis(e.ABS_RY, lambda v: v < -25000)) is not None)
+        move(e.ABS_HAT1X, 0)
+        move(e.ABS_HAT2Y, 0)
+        drain(pad)
+        fake.press("A")
+        check("el Wiimote sigue funcionando a la vez", wait_event(pad, key(e.BTN_A)) is not None)
+        try:
+            node = wait_device(wg.CLASSIC)
+            node.grab()
+            node.ungrab()
+            grabbed = False
+        except OSError:
+            grabbed = True
+        check("el puente toma el Classic: los juegos no lo ven como otro mando", grabbed)
+
+        print("Asistente: detectar botones")
+        # El puente de la prueba usa el XDG_RUNTIME_DIR real: la bandera va donde la busca.
+        wg.start_learning()
+        try:
+            check("el puente entra al modo detectar", b.wait_output("Detectando botones", 2), "".join(b.out[-3:]))
+            drain(pad)
+            press("cB")
+            fake.press("2")
+            fake.stick(110, 0)
+            time.sleep(0.4)
+            fake.stick(0, 0)
+            events, _ = wg.read_learned(0)
+            srcs = [ev["src"] for ev in events]
+            check("anota el b del Classic, el 2 del Wiimote y el stick del Nunchuk",
+                  srcs == ["cB", "2", "stick:nunchuk_stick"], str(srcs))
+            check("mientras detecta, nada llega al juego", wait_event(pad, lambda ev: ev.type in (e.EV_KEY,) or
+                                                                  (ev.type == e.EV_ABS and ev.value), 0.3) is None)
+        finally:
+            wg.stop_learning()
+        check("al cerrar el asistente vuelve a jugar", b.wait_output("Fin de la detección", 2))
+        drain(pad)
+        press("cB")
+        check("y el b del Classic vuelve a ser A", wait_event(pad, key(e.BTN_A)) is not None)
+
+        print("Classic en modo mouse")
+
+        def combo(*srcs):
+            for value in (1, 0):
+                for src in srcs:
+                    classic.write(e.EV_KEY, wg.CLASSIC_BUTTONS[src][0], value)
+                classic.syn()
+                time.sleep(0.1)
+
+        combo("c+", "c-")
+        check("+ y − del Classic a la vez -> modo mouse", b.wait_output("Modo mouse", 2), "".join(b.out[-3:]))
+        drain(pad)
+        press("cL")  # hace de 1 (Esc): no toca el escritorio de forma visible
+        check("en modo mouse sus botones ya no llegan al mando", wait_event(pad, key(e.BTN_TL), 0.5) is None)
+        combo("c+", "c-")
+        check("otra vez + y − del Classic -> vuelve a ser mando", b.wait_output("Modo mando de juego", 2))
+        drain(pad)
+        press("c+")
+        check("y su + vuelve a ser Start (no quedó tragado)", wait_event(pad, key(e.BTN_START)) is not None)
+        classic.close()
+        check("quitar el Classic no desconecta el Wiimote",
+              b.wait_output("Classic Controller desconectado", 1 + wg.UNPLUG_GRACE + 1) and b.proc.poll() is None)
+    finally:
+        fake.close()
+        try:
+            classic.close()
+        except OSError:
+            pass
+        if pad:
+            try:
+                pad.close()
+            except OSError:
+                pass
+        b.stop()
+
+
 def main():
     if not os.access("/dev/uinput", os.W_OK):
         raise SystemExit("Sin acceso a /dev/uinput: ejecuta install.sh primero.")
@@ -505,6 +625,7 @@ def main():
             test_config(Path(tmp))
             test_bridge(Path(tmp))
             test_players(Path(tmp))
+            test_classic(Path(tmp))
     finally:
         if blocked:
             unblock_service()

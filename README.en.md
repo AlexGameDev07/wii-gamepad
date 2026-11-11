@@ -4,7 +4,8 @@
 ![Linux](https://img.shields.io/badge/platform-Linux-informational)
 [![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
-Use a Wii Remote (with or without Nunchuk) as an Xbox 360 controller on Linux: Steam, Proton,
+Use a Wii Remote (with or without Nunchuk, or with a Classic Controller / Classic Pro) as an
+Xbox 360 controller on Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) and any game with controller support.
 
 ![Live Wiimote: buttons, Nunchuk stick, gyro and switching profiles without restarting](docs/demo.gif)
@@ -28,6 +29,7 @@ There are other ways to use a Wiimote on Linux, but none of them bring all of th
 | Mouse mode and on-screen keyboard driven by the Wiimote | ✅ | ⚠️ mouse only | ❌ | ❌ | ❌ |
 | Starts and stops with the Wiimote; saves battery | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Up to 4 Wiimotes at once, each with its own profile | ✅ | ⚠️ one process per Wiimote | — | ✅ | — |
+| Classic Controller and Classic Pro | ✅ | ⚠️ | — | ✅ | ⚠️ |
 | Maintained | ✅ | ❌ abandoned | ⚠️ barely | ✅ | ✅ |
 
 It relies on the kernel's own driver (`hid-wiimote`), so it doesn't reimplement the Wiimote
@@ -87,9 +89,16 @@ Wayland.
 
 The sidebar lists the connected Wiimotes (player number and battery) and the profiles. Each
 Wiimote's page sets its profile and name, tests rumble and shows its virtual controller live;
-each profile's page chooses which Xbox button every Wiimote/Nunchuk button maps to. The window
-adapts to its size, follows the system's light or dark style and is animated; ☰ →
-**Preferencias** has the theme, a switch to turn animations off, alerts and mouse mode.
+each profile's page chooses which Xbox button every button maps to, Steam style: the controller
+is drawn with a label on each button; click the label or the button in the drawing to change it.
+**Configurar con tu mando** (set up with your controller) works like Steam: an Xbox button lights
+up and you press the button you want for it on your controller (the Wiimote, sideways or not,
+the Nunchuk or the Classic), and move the stick you want for each stick. While it's open, your
+buttons don't reach the game. A switch at the top toggles between the
+Wiimote + Nunchuk drawing and the Classic Controller one. The window adapts to its size (when
+narrow, the profile's buttons become a list), follows the system's light or dark style and is animated; ☰ →
+**Preferencias** has the theme, a switch to turn animations off and alerts. Mouse mode has its own
+page in the sidebar.
 
 ![Profile editor](docs/perfil.png)
 
@@ -119,6 +128,23 @@ anyone can or only player 1.
 | 1 / 2 | Back / Start | Pause and map: out of the way so you don't hit them by accident |
 | Home | Guide | Steam menu |
 
+## Classic Controller and Classic Pro
+
+Plug a Classic Controller or Classic Controller Pro into the Wiimote and it just works, like
+the Nunchuk: both sticks, the D-pad and every button. The bridge takes it over, so games don't
+see it as a separate controller, and the Wiimote's buttons keep working too.
+
+By default buttons map by position, like an Xbox controller: b / a / y / x (bottom, right,
+left, top) → A / B / X / Y, L / R → LB / RB, ZL / ZR → LT / RT, − / + / Home → Back / Start /
+Guide, and each stick to its stick. To map by letter instead (a = A), change it in the
+profile's Classic drawing.
+
+**Mouse mode with the Classic:** + and − together toggle it, like on the Wiimote. The left stick
+moves the pointer and each button does what its Wiimote/Nunchuk counterpart does (with your
+actions and combos from Preferences): b = A (click), a = B (backspace), ZR = Z (right click),
+ZL = C (Enter and the combo modifier), L / R = 1 / 2 (Esc / on-screen keyboard), D-pad = D-pad
+(scroll), Home = Home. Gyro recentering is still done on the Wiimote.
+
 ## Mouse mode
 
 ![Mouse mode window](docs/modo-mouse.png)
@@ -129,10 +155,13 @@ pointer, A/Z click, the D-pad scrolls and goes back/forward, and 2 opens the on-
 Button combinations: with the Nunchuk attached, hold C or Z and press another button. C + D-pad → / ←
 switches windows (keep holding C and repeat), Z + D-pad → / ← switches tabs, C + B closes the window,
 Z + B closes the tab, and C + Z + B closes the browser window. Create your own with 2 to 4 buttons in
-**Preferencias → Modo mouse → Combinaciones**. When C or Z belongs to a combination, its normal function
+**Modo mouse → Combinaciones** (in the sidebar). When C or Z belongs to a combination, its normal function
 runs on release.
 
-Everything is configurable in **Preferencias → Modo mouse**.
+Everything is configurable on the **Modo mouse** page in the sidebar, over a drawing of your
+controller. A switch at the top picks Wiimote alone, Wiimote + Nunchuk or Classic Controller (it
+follows what's plugged in), and every button and combination is named as on that controller: on the
+Classic, left click is its b button, not B.
 
 ### On-screen keyboard
 
@@ -184,9 +213,9 @@ sudo python3 wii_speaker_test.py
 
 ## Tests
 
-No Wiimote needed: they create a fake Wiimote, Nunchuk and Motion Plus with `uinput` and check
-what comes out of the virtual controller (buttons, sticks, gyro, rumble, live profiles, mouse
-mode, disconnects and two Wiimotes at once). The second one installs the app on 7 distros using containers.
+No Wiimote needed: they create a fake Wiimote, Nunchuk, Motion Plus and Classic Controller with
+`uinput` and check what comes out of the virtual controller (buttons, sticks, gyro, rumble, live
+profiles, mouse mode, disconnects, two Wiimotes at once and the Classic). The second one installs the app on 7 distros using containers.
 
 ```sh
 python3 tests/test_bridge.py   # requires having run install.sh

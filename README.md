@@ -4,7 +4,8 @@
 ![Linux](https://img.shields.io/badge/plataforma-Linux-informational)
 [![Apóyame en Ko-fi](https://img.shields.io/badge/Ko--fi-ap%C3%B3yame-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alexdev07)
 
-Usa un Wiimote (con o sin Nunchuk) como mando de Xbox 360 en Linux: Steam, Proton,
+Usa un Wiimote (con o sin Nunchuk, o con un Classic Controller / Classic Pro) como mando de
+Xbox 360 en Linux: Steam, Proton,
 Rocket League, Geometry Dash, Roblox (Sober) y cualquier juego con soporte de mando.
 
 ![Wiimote en vivo: botones, stick del Nunchuk, giroscopio y cambio de perfil sin reiniciar](docs/demo.gif)
@@ -28,6 +29,7 @@ Hay otras formas de usar un Wiimote en Linux, pero ninguna junta todo esto:
 | Modo mouse y teclado en pantalla manejados con el Wiimote | ✅ | ⚠️ solo mouse | ❌ | ❌ | ❌ |
 | Arranca y se apaga solo con el Wiimote; ahorra batería | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Hasta 4 Wiimotes a la vez, cada uno con su perfil | ✅ | ⚠️ un proceso por Wiimote | — | ✅ | — |
+| Classic Controller y Classic Pro | ✅ | ⚠️ | — | ✅ | ⚠️ |
 | Mantenido | ✅ | ❌ abandonado | ⚠️ poco | ✅ | ✅ |
 
 Usa el driver oficial del kernel (`hid-wiimote`), así que no reimplementa el protocolo
@@ -90,11 +92,21 @@ Funciona en X11 y Wayland.
 A la izquierda están los Wiimotes conectados (con su número de jugador y su batería) y los
 perfiles. En la página de cada Wiimote eliges su perfil, le pones nombre, pruebas la
 vibración y ves su mando virtual en vivo. En la de cada perfil eliges qué botón de Xbox
-corresponde a cada botón del Wiimote/Nunchuk.
+corresponde a cada botón, como en Steam: el mando aparece dibujado con una etiqueta en cada
+botón; haz clic en la etiqueta o en el botón del dibujo para cambiarlo. Arriba cambias entre
+el dibujo del Wiimote + Nunchuk y el del Classic Controller.
+
+**Configurar con tu mando** funciona como en Steam: se ilumina un botón del mando Xbox y tú
+aprietas en tu mando (el Wiimote, de lado o no, el Nunchuk o el Classic) el que quieres para
+él; también se mueve el stick que quieres para cada stick. Mientras el asistente está abierto,
+tus botones no llegan al juego.
+
+![Configurar con tu mando](docs/asistente.png)
 
 ![Editor de perfiles](docs/perfil.png)
 
-La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega), sigue el tema
+La ventana se adapta a su tamaño (estrecha, la barra lateral se pliega y los botones del
+perfil pasan a ser una lista), sigue el tema
 claro u oscuro del sistema y tiene animaciones. En el menú ☰ → **Preferencias** están el
 tema, un interruptor para quitar las animaciones, los avisos y el modo mouse.
 
@@ -137,6 +149,31 @@ en Preferencias eliges si puede usarlo cualquiera o solo el jugador 1.
 | 1 / 2 | Back / Start | Pausa y mapa: están lejos y no se pulsan sin querer |
 | Home | Guide | Menú de Steam |
 
+## Classic Controller y Classic Pro
+
+Enchufa un Classic Controller o un Classic Controller Pro al Wiimote y funciona solo, como el
+Nunchuk: los dos sticks, la cruceta y todos sus botones. El puente se queda con él, así que
+los juegos no lo ven como un mando aparte. Los botones del Wiimote siguen funcionando a la vez.
+
+Por defecto los botones van por posición, como en un mando Xbox:
+
+| Classic | Xbox |
+|---|---|
+| b (abajo) / a (derecha) / y (izquierda) / x (arriba) | A / B / X / Y |
+| L / R | LB / RB |
+| ZL / ZR | LT / RT |
+| − / + / Home | Back / Start / Guide |
+| Stick izquierdo / derecho | Stick izquierdo / derecho |
+
+Si prefieres que vayan por letra (a = A), cámbialo en el perfil, en el dibujo del Classic.
+
+**Modo mouse con el Classic:** + y − a la vez lo activan y lo quitan, como en el Wiimote. El
+stick izquierdo mueve el puntero y cada botón hace lo mismo que su equivalente del Wiimote o
+el Nunchuk (con las acciones y combinaciones que tengas en Preferencias): b = A (clic),
+a = B (borrar), ZR = Z (clic derecho), ZL = C (Enter y modificador de las combinaciones),
+L / R = 1 / 2 (Esc / teclado en pantalla), cruceta = cruceta (scroll) y Home = Home. Recentrar
+el giroscopio sigue siendo con el Wiimote.
+
 ## Modo mouse
 
 ![Ventana del modo mouse](docs/modo-mouse.png)
@@ -170,13 +207,15 @@ Con el Nunchuk puesto, mantén C o Z y pulsa otro botón:
 | Z + A / C + A | Copiar / pegar |
 | C + Z | Reproducir / pausa |
 
-Puedes crear las tuyas, de 2 a 4 botones, en **Preferencias → Modo mouse → Combinaciones**. Si C o Z
+Puedes crear las tuyas, de 2 a 4 botones, en **Modo mouse → Combinaciones** (en la barra lateral). Si C o Z
 están en una combinación, su función normal actúa al soltarlos. Dos botones del Wiimote sin C ni Z
 se aprietan casi a la vez, y esos botones tardan 0,15 s más en actuar solos.
 
-Todo se cambia en **Preferencias → Modo mouse**: la combinación, cada botón, la velocidad y con qué se
-mueve el puntero (stick, giroscopio o cruceta; el giroscopio tiene casillas para invertir
-cada eje). Sin Nunchuk, la cruceta mueve el puntero.
+Todo se cambia en la página **Modo mouse** de la barra lateral, sobre el dibujo de tu mando: la
+combinación, cada botón, la velocidad y con qué se mueve el puntero (stick, giroscopio o cruceta; el
+giroscopio tiene casillas para invertir cada eje). Sin Nunchuk, la cruceta mueve el puntero. Arriba
+eliges Wiimote solo, Wiimote + Nunchuk o Classic Controller (se elige solo según lo enchufado) y cada
+botón y combinación se nombra como en ese mando: con el Classic, el clic izquierdo es su b, no la B.
 
 ### Teclado en pantalla
 
@@ -284,9 +323,9 @@ encendido hace que el Wiimote transmita sin parar y gaste más pila.
 
 ## Pruebas
 
-Sin Wiimote: crean un Wiimote, Nunchuk y Motion Plus falsos con `uinput` y comprueban lo
-que sale por el mando virtual (botones, sticks, giroscopio, vibración, perfiles en vivo,
-modo mouse, desconexiones y dos Wiimotes a la vez). La segunda instala la app en 7 distros con contenedores.
+Sin Wiimote: crean un Wiimote, Nunchuk, Motion Plus y Classic Controller falsos con `uinput`
+y comprueban lo que sale por el mando virtual (botones, sticks, giroscopio, vibración, perfiles
+en vivo, modo mouse, desconexiones, dos Wiimotes a la vez y el Classic). La segunda instala la app en 7 distros con contenedores.
 
 ```sh
 python3 tests/test_bridge.py   # necesita haber ejecutado install.sh

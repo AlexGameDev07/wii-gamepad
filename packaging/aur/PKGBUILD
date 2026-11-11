@@ -2,7 +2,7 @@
 pkgname=wii-gamepad
 pkgver=1.3
 pkgrel=1
-pkgdesc="Wii Remote + Nunchuk as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)"
+pkgdesc="Wii Remote + Nunchuk or Classic Controller as an Xbox 360 controller (rumble, gyro, per-game profiles, mouse mode)"
 arch=('any')
 url="https://github.com/AlexGameDev07/wii-gamepad"
 license=('GPL-3.0-or-later')
@@ -22,7 +22,7 @@ package() {
     local data=/usr/share/$pkgname
 
     install -Dm644 -t "$pkgdir$data" wii_gamepad.py wii_gamepad_config.py wii_gamepad_adw.py wii_gamepad_gui.py \
-        wii_keyboard.py wii_speaker.py wii_news.py wii-gamepad.svg
+        wii_keyboard.py wii_speaker.py wii_news.py wii_mapper.py wii-gamepad.svg
     install -Dm644 -t "$pkgdir$data/sonidos" sonidos/*
     install -Dm644 -t "$pkgdir$data/bocina" bocina/*.s8
     install -Dm644 wii-gamepad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/wii-gamepad.svg"
